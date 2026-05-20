@@ -84,11 +84,11 @@ window.APP.COST_PER_CALL = {
 // ── Default app settings ──────────────────────────────────────────────────────
 window.APP.DEFAULT_SETTINGS = {
   householdName:      "Haley's Meal Planning",
-  pin:                "1234",
+  pin:                "4621",
   people:             2,
   defaultMealTypes:   ["Dinner"],
   defaultProteins:    [],           // blank = any protein
-  zipCode:            "",
+  zipCode:            "44691",
   googleSheetsUrl:    "",
 };
 

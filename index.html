@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="theme-color" content="#D4622A" />
   <title>Haley's Meal Planning</title>
@@ -13,22 +13,29 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <div id="root"></div>
+  <div id="root"><div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;color:#7A6A55;">Loading…</div></div>
 
-  <!-- React -->
+  <!-- React & Babel -->
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-  <!-- Firebase (loaded as ES modules via a small inline bootstrap) -->
-  <script type="module">
-    import { initializeApp }      from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-    import {
-      getFirestore,
-      doc, getDoc, setDoc,
-    } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+  <!-- Firebase via ES module shim -->
+  <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
+  <script type="importmap">
+  {
+    "imports": {
+      "firebase/app":       "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js",
+      "firebase/firestore": "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js"
+    }
+  }
+  </script>
 
-    // ── Config ──────────────────────────────────────────────────────────────
+  <!-- Firebase init -->
+  <script type="module">
+    import { initializeApp } from "firebase/app";
+    import { getFirestore, doc, getDoc, setDoc } from "firebase/firestore";
+
     const firebaseConfig = {
       apiKey:            "AIzaSyAGsLTqTtqJ_2ofBvzIHZ18rT74Ifj5MTw",
       authDomain:        "meal-planner-5df26.firebaseapp.com",
@@ -38,87 +45,43 @@
       appId:             "1:591027849531:web:16799ab95c09098ebf8f1e",
     };
 
-    const firebaseApp = initializeApp(firebaseConfig);
-    const db          = getFirestore(firebaseApp);
+    const fb = initializeApp(firebaseConfig);
+    const db = getFirestore(fb);
 
-    // ── Path helpers ─────────────────────────────────────────────────────────
     const groceryRef = id => doc(db, "households", id, "grocery",  "items");
     const recipesRef = id => doc(db, "households", id, "recipes",  "backup");
     const costlogRef = id => doc(db, "households", id, "costlog",  "entries");
     const hhRef      = id => doc(db, "households", id);
 
-    // ── Read helpers ─────────────────────────────────────────────────────────
-    async function readGrocery(id)  { const s = await getDoc(groceryRef(id)); return s.exists() ? (s.data().items   || []) : []; }
-    async function readRecipes(id)  { const s = await getDoc(recipesRef(id)); return s.exists() ? (s.data().recipes || []) : []; }
-    async function readCostLog(id)  { const s = await getDoc(costlogRef(id)); return s.exists() ? (s.data().entries || []) : []; }
-
-    // ── Write helpers ────────────────────────────────────────────────────────
-    async function writeGrocery(id, items)   { await setDoc(groceryRef(id), { items,   updatedAt: Date.now() }); }
-    async function writeRecipes(id, recipes) { await setDoc(recipesRef(id), { recipes, updatedAt: Date.now() }); }
-    async function writeCostLog(id, entries) { await setDoc(costlogRef(id), { entries, updatedAt: Date.now() }); }
-
-    // ── Household helpers ────────────────────────────────────────────────────
-    async function householdExists(id)       { const s = await getDoc(hhRef(id)); return s.exists(); }
-    async function createHousehold(id, name) { await setDoc(hhRef(id), { name, createdAt: Date.now() }); }
-
-    // ── Expose on window.APP ─────────────────────────────────────────────────
     window.APP = window.APP || {};
     window.APP.firebase = {
-      readGrocery, readRecipes, readCostLog,
-      writeGrocery, writeRecipes, writeCostLog,
-      householdExists, createHousehold,
+      readGrocery:      async id => { const s = await getDoc(groceryRef(id)); return s.exists() ? (s.data().items   || []) : []; },
+      readRecipes:      async id => { const s = await getDoc(recipesRef(id)); return s.exists() ? (s.data().recipes || []) : []; },
+      readCostLog:      async id => { const s = await getDoc(costlogRef(id)); return s.exists() ? (s.data().entries || []) : []; },
+      writeGrocery:     async (id, items)   => setDoc(groceryRef(id), { items,   updatedAt: Date.now() }),
+      writeRecipes:     async (id, recipes) => setDoc(recipesRef(id), { recipes, updatedAt: Date.now() }),
+      writeCostLog:     async (id, entries) => setDoc(costlogRef(id), { entries, updatedAt: Date.now() }),
+      householdExists:  async id => { const s = await getDoc(hhRef(id)); return s.exists(); },
+      createHousehold:  async (id, name) => setDoc(hhRef(id), { name, createdAt: Date.now() }),
     };
-
-    // Signal that Firebase is ready
     window.APP.firebaseReady = true;
-    document.dispatchEvent(new Event("firebase-ready"));
   </script>
 
-  <!-- App modules — loaded after Firebase signals ready -->
-  <script>
-    // Wait for Firebase to initialise before loading Babel/React modules.
-    // Falls back gracefully if Firebase takes longer than expected.
-    function loadApp() {
-      const scripts = [
-        "js/constants.js",
-        "js/utils.js",
-        "js/categorizer.js",
-        "js/hooks.js",
-        "js/sync.js",
-        "js/components/ui.js",
-        "js/components/nav.js",
-        "js/screens/home.js",
-        "js/screens/recipes.js",
-        "js/screens/mealplan.js",
-        "js/screens/grocery.js",
-        "js/screens/pantry.js",
-        "js/screens/settings.js",
-        "js/app.js",
-      ];
-
-      // Load scripts sequentially so dependencies are met in order
-      scripts.reduce((chain, src) => {
-        return chain.then(() => new Promise((resolve, reject) => {
-          const s = document.createElement("script");
-          s.type    = "text/babel";
-          s.src     = src;
-          s.onload  = resolve;
-          s.onerror = () => { console.error("Failed to load:", src); reject(); };
-          document.body.appendChild(s);
-        }));
-      }, Promise.resolve())
-      .then(() => Babel.transformScriptTags())
-      .catch(e => console.error("App load error:", e));
-    }
-
-    if (window.APP && window.APP.firebaseReady) {
-      loadApp();
-    } else {
-      document.addEventListener("firebase-ready", loadApp, { once: true });
-      // Safety fallback — load app after 3s even if Firebase event didn't fire
-      setTimeout(loadApp, 3000);
-    }
-  </script>
+  <!-- App modules in dependency order, all as text/babel -->
+  <script type="text/babel" src="js/constants.js"></script>
+  <script type="text/babel" src="js/utils.js"></script>
+  <script type="text/babel" src="js/categorizer.js"></script>
+  <script type="text/babel" src="js/hooks.js"></script>
+  <script type="text/babel" src="js/sync.js"></script>
+  <script type="text/babel" src="js/components/ui.js"></script>
+  <script type="text/babel" src="js/components/nav.js"></script>
+  <script type="text/babel" src="js/screens/home.js"></script>
+  <script type="text/babel" src="js/screens/recipes.js"></script>
+  <script type="text/babel" src="js/screens/mealplan.js"></script>
+  <script type="text/babel" src="js/screens/grocery.js"></script>
+  <script type="text/babel" src="js/screens/pantry.js"></script>
+  <script type="text/babel" src="js/screens/settings.js"></script>
+  <script type="text/babel" src="js/app.js"></script>
 
 </body>
 </html>

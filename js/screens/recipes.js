@@ -8,7 +8,7 @@ const { COURSES, PROTEINS, APPLIANCES, SECTIONS } = window.APP;
 
 // ── RecipesScreen ─────────────────────────────────────────────────────────────
 window.APP.RecipesScreen = function({ recipes, setRecipes, onAddToMealPlan, onAddToGrocery, requestPin, addCost, showBanner }) {
-  const [view,   setView]   = useState("list"); // list | detail | edit | new
+  const [view,   setView]   = useState("list");
   const [active, setActive] = useState(null);
   const [search, setSearch] = useState("");
   const [filterCourse,  setFilterCourse]  = useState("");
@@ -58,17 +58,16 @@ window.APP.RecipesScreen = function({ recipes, setRecipes, onAddToMealPlan, onAd
     setImportLoading(true); setImportError("");
     try {
       const data = await callClaude({
-        maxTokens: 1200,
+        maxTokens: 1000,
         messages: [{
           role: "user",
-          content: `Extract the full recipe from this URL. Return ONLY valid JSON, no markdown:
+          content: `Extract the recipe from this URL. Return ONLY valid JSON, no markdown:
 {"name":"","course":"Main","proteins":[],"tags":[],"appliances":[],"servings":4,"prepTime":0,"cookTime":0,"ingredients":[{"id":"i1","name":"","amount":1,"unit":"","section":"Other"}],"steps":[],"notes":"","estimatedCost":0}
 URL: ${importUrl.trim()}`,
         }],
       });
       const text   = extractText(data.content);
       const parsed = parseJSON(text);
-      // Auto-categorize any ingredients that came back as "Other"
       parsed.ingredients = (parsed.ingredients || []).map(ing => ({
         ...ing,
         section: ing.section && ing.section !== "Other" ? ing.section : categorize(ing.name),
@@ -110,7 +109,7 @@ URL: ${importUrl.trim()}`,
 
     // Search + filters
     h("div", { style: { marginBottom: 16 } },
-      h("input", { className: "search-bar", value: search, onChange: e => setSearch(e.target.value), placeholder: "🔍 Search recipes, tags…" }),
+      h("input", { className: "search-bar", value: search, onChange: e => setSearch(e.target.value), placeholder: "🔍 Search recipes, tags, proteins…" }),
       h("div", { className: "flex gap-8" },
         h("select", { className: "form-input form-select", style: { flex: 1 }, value: filterCourse, onChange: e => setFilterCourse(e.target.value) },
           h("option", { value: "" }, "All courses"),
@@ -126,28 +125,70 @@ URL: ${importUrl.trim()}`,
     filtered.length === 0 && h(EmptyState, { icon: "📖", title: "No recipes yet", sub: "Add your first recipe or import from a URL" }),
 
     h("div", { style: { display: "grid", gap: 12 } },
-      filtered.map(r => h(RecipeCard, { key: r.id, recipe: r, onClick: () => openRecipe(r) })),
+      filtered.map(r => h(RecipeCard, { key: r.id, recipe: r, onClick: () => openRecipe(r), onAddToMealPlan, onAddToGrocery, showBanner })),
     ),
   );
 };
 
 // ── RecipeCard ────────────────────────────────────────────────────────────────
-function RecipeCard({ recipe: r, onClick }) {
-  return h(Card, { className: "recipe-card", onClick },
-    h("div", { className: "recipe-thumb" },
-      r.photo
-        ? h("img", { src: r.photo, alt: r.name })
-        : "🍴",
-    ),
-    h("div", { className: "recipe-info" },
-      h("div", { className: "recipe-name" }, r.name),
-      h("div", { className: "recipe-meta" }, `${r.course} · ${r.servings} srv · ${fmt$(r.estimatedCost)}`),
-      h("div", { className: "recipe-tags" },
-        (r.proteins || []).slice(0, 2).map(p => h(Tag, { key: p, label: p, color: "#E8F4EC", textColor: "#2A7D4F" })),
-        (r.tags    || []).slice(0, 2).map(t => h(Tag, { key: t, label: t })),
+function RecipeCard({ recipe: r, onClick, onAddToMealPlan, onAddToGrocery, showBanner }) {
+  return h(Card, { style: { padding: "14px 16px" } },
+    // Top row — thumbnail + info (tappable to open detail)
+    h("div", { className: "recipe-card", onClick, style: { marginBottom: 10 } },
+      h("div", { className: "recipe-thumb" },
+        r.photo ? h("img", { src: r.photo, alt: r.name }) : "🍴",
       ),
+      h("div", { className: "recipe-info" },
+        h("div", { className: "recipe-name" }, r.name),
+        h("div", { className: "recipe-meta" }, `${r.course} · ${r.servings} srv · ${fmt$(r.estimatedCost)}`),
+        h("div", { className: "recipe-tags" },
+          (r.proteins || []).slice(0, 2).map(p => h(Tag, { key: p, label: p, color: "#E8F4EC", textColor: "#2A7D4F" })),
+          (r.tags    || []).slice(0, 2).map(t => h(Tag, { key: t, label: t })),
+        ),
+      ),
+      h("div", { className: "recipe-chevron" }, "›"),
     ),
-    h("div", { className: "recipe-chevron" }, "›"),
+
+    // Quick add buttons
+    h("div", { className: "flex gap-8" },
+      h("button", {
+        onClick: e => {
+          e.stopPropagation();
+          onAddToMealPlan(r);
+          showBanner(`✓ ${r.name} added to meal plan`, "success");
+        },
+        style: {
+          flex: 1,
+          padding: "7px 8px",
+          borderRadius: 8,
+          border: "1.5px solid #F0E6D3",
+          background: "#FFF8F0",
+          fontSize: 12,
+          fontWeight: 600,
+          cursor: "pointer",
+          color: "#D4622A",
+          fontFamily: "'DM Sans', sans-serif",
+        },
+      }, "📅 Add to Plan"),
+      h("button", {
+        onClick: e => {
+          e.stopPropagation();
+          onAddToGrocery(r, r.servings);
+        },
+        style: {
+          flex: 1,
+          padding: "7px 8px",
+          borderRadius: 8,
+          border: "1.5px solid #F0E6D3",
+          background: "#FFF8F0",
+          fontSize: 12,
+          fontWeight: 600,
+          cursor: "pointer",
+          color: "#2A7D4F",
+          fontFamily: "'DM Sans', sans-serif",
+        },
+      }, "🛒 Add to Grocery"),
+    ),
   );
 }
 
@@ -157,19 +198,16 @@ function RecipeDetail({ recipe, onBack, onEdit, onDelete, onAddToMealPlan, onAdd
   const ratio = servings / (recipe.servings || 1);
 
   return h("div", null,
-    // Back bar
     h("div", { className: "flex-center gap-12", style: { marginBottom: 20 } },
       h("button", { onClick: onBack, style: { background: "none", border: "none", cursor: "pointer", fontSize: 22, color: "#7A6A55" } }, "←"),
       h("h2", { className: "font-serif", style: { flex: 1, fontSize: 20, margin: 0 } }, recipe.name),
       h(Btn, { label: "Edit", variant: "ghost", onClick: onEdit, className: "btn-sm" }),
     ),
 
-    // Photo
     h("div", { style: { width: "100%", height: 160, borderRadius: 16, background: "linear-gradient(135deg,#FDE8D8,#F0E6D3)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 60, marginBottom: 16, overflow: "hidden" } },
       recipe.photo ? h("img", { src: recipe.photo, alt: recipe.name, style: { width: "100%", height: "100%", objectFit: "cover" } }) : "🍴",
     ),
 
-    // Meta
     h("div", { className: "meta-grid" },
       ...[["⏱ Prep", `${recipe.prepTime || 0}m`], ["🔥 Cook", `${recipe.cookTime || 0}m`], ["💰 Cost", fmt$(recipe.estimatedCost)]].map(([l, v]) =>
         h(Card, { key: l, className: "meta-cell" },
@@ -179,7 +217,6 @@ function RecipeDetail({ recipe, onBack, onEdit, onDelete, onAddToMealPlan, onAdd
       ),
     ),
 
-    // Tags
     h("div", { className: "flex wrap gap-6", style: { marginBottom: 16 } },
       recipe.course && h(Tag, { label: recipe.course, color: "#E8EEF8", textColor: "#2A6A9E" }),
       (recipe.proteins || []).map(p => h(Tag, { key: p, label: p, color: "#E8F4EC", textColor: "#2A7D4F" })),
@@ -187,7 +224,6 @@ function RecipeDetail({ recipe, onBack, onEdit, onDelete, onAddToMealPlan, onAdd
       (recipe.appliances || []).map(a => h(Tag, { key: a, label: a, color: "#F0E8F8", textColor: "#6A3D9A" })),
     ),
 
-    // Ingredients with scaler
     h(Card, { style: { marginBottom: 16 } },
       h("div", { className: "flex-between mb-12" },
         h("div", { className: "font-bold font-serif", style: { fontSize: 15 } }, "Ingredients"),
@@ -205,7 +241,6 @@ function RecipeDetail({ recipe, onBack, onEdit, onDelete, onAddToMealPlan, onAdd
       ),
     ),
 
-    // Steps
     h(Card, { style: { marginBottom: 16 } },
       h("div", { className: "font-bold font-serif mb-12", style: { fontSize: 15 } }, "Instructions"),
       (recipe.steps || []).map((s, i) =>
@@ -216,13 +251,11 @@ function RecipeDetail({ recipe, onBack, onEdit, onDelete, onAddToMealPlan, onAdd
       ),
     ),
 
-    // Notes
     recipe.notes && h(Card, { style: { marginBottom: 16, background: "#FDE8D8" } },
       h("div", { className: "font-bold text-sm", style: { color: "#A0420A", marginBottom: 4 } }, "📝 Notes"),
       h("div", { style: { fontSize: 14 } }, recipe.notes),
     ),
 
-    // Nutrition
     recipe.nutrition?.calories && h(Card, { style: { marginBottom: 16 } },
       h("div", { className: "font-bold font-serif mb-12", style: { fontSize: 15 } }, "Nutrition (per serving)"),
       h("div", { className: "nutrition-grid" },
@@ -235,7 +268,6 @@ function RecipeDetail({ recipe, onBack, onEdit, onDelete, onAddToMealPlan, onAdd
       ),
     ),
 
-    // Actions
     h("div", { className: "flex gap-10 wrap", style: { marginBottom: 8 } },
       h(Btn, {
         label: "Add to Meal Plan", icon: "🗓", style: { flex: 1 },
@@ -255,18 +287,15 @@ function RecipeForm({ recipe, onSave, onCancel }) {
 
   const upd = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-  // Ingredients
-  const addIng    = ()         => upd("ingredients", [...form.ingredients, { id: uid(), name: "", amount: 1, unit: "", section: "Other" }]);
-  const updIngKey = (id, k, v) => upd("ingredients", form.ingredients.map(i => i.id === id ? { ...i, [k]: v } : i));
-  const updIngName = (id, v)   => upd("ingredients", form.ingredients.map(i => i.id === id ? { ...i, name: v, section: categorize(v) } : i));
-  const remIng    = id         => upd("ingredients", form.ingredients.filter(i => i.id !== id));
+  const addIng     = ()         => upd("ingredients", [...form.ingredients, { id: uid(), name: "", amount: 1, unit: "", section: "Other" }]);
+  const updIngKey  = (id, k, v) => upd("ingredients", form.ingredients.map(i => i.id === id ? { ...i, [k]: v } : i));
+  const updIngName = (id, v)    => upd("ingredients", form.ingredients.map(i => i.id === id ? { ...i, name: v, section: categorize(v) } : i));
+  const remIng     = id         => upd("ingredients", form.ingredients.filter(i => i.id !== id));
 
-  // Steps
-  const addStep  = ()        => upd("steps", [...form.steps, ""]);
-  const updStep  = (idx, v)  => upd("steps", form.steps.map((s, i) => i === idx ? v : s));
-  const remStep  = idx       => upd("steps", form.steps.filter((_, i) => i !== idx));
+  const addStep  = ()       => upd("steps", [...form.steps, ""]);
+  const updStep  = (idx, v) => upd("steps", form.steps.map((s, i) => i === idx ? v : s));
+  const remStep  = idx      => upd("steps", form.steps.filter((_, i) => i !== idx));
 
-  // Tags
   const addTag = () => { if (tagInput.trim() && !form.tags.includes(tagInput.trim())) { upd("tags", [...form.tags, tagInput.trim()]); setTagInput(""); } };
   const remTag = t => upd("tags", form.tags.filter(x => x !== t));
 
@@ -277,12 +306,10 @@ function RecipeForm({ recipe, onSave, onCancel }) {
       h(Btn, { label: "Save", onClick: () => onSave(form) }),
     ),
 
-    h(Input, { label: "Recipe Name",        value: form.name,           onChange: v => upd("name", v),           placeholder: "e.g. Smash Burgers" }),
-    h(Input, { label: "Photo URL (optional)",value: form.photo || "",    onChange: v => upd("photo", v),          placeholder: "https://…" }),
+    h(Input, { label: "Recipe Name",         value: form.name,        onChange: v => upd("name", v),         placeholder: "e.g. Smash Burgers" }),
+    h(Input, { label: "Photo URL (optional)", value: form.photo || "", onChange: v => upd("photo", v),        placeholder: "https://…" }),
 
-    h("div", { className: "flex gap-10" },
-      h("div", { style: { flex: 1 } }, h(Select, { label: "Course", value: form.course, onChange: v => upd("course", v), options: COURSES })),
-    ),
+    h("div", { style: { flex: 1 } }, h(Select, { label: "Course", value: form.course, onChange: v => upd("course", v), options: COURSES })),
 
     h("div", { className: "flex gap-10" },
       h("div", { style: { flex: 1 } }, h(Input, { label: "Servings",   type: "number", value: form.servings,     onChange: v => upd("servings",     +v) })),
@@ -292,19 +319,16 @@ function RecipeForm({ recipe, onSave, onCancel }) {
 
     h(Input, { label: "Est. Cost ($)", type: "number", value: form.estimatedCost, onChange: v => upd("estimatedCost", +v) }),
 
-    // Proteins
     h("div", { className: "form-group" },
       h("label", { className: "form-label" }, "Protein Type"),
       h(PillToggle, { options: PROTEINS, selected: form.proteins || [], onToggle: p => upd("proteins", toggleInArray(form.proteins || [], p)) }),
     ),
 
-    // Appliances
     h("div", { className: "form-group" },
       h("label", { className: "form-label" }, "Appliances Used"),
       h(PillToggle, { options: APPLIANCES, selected: form.appliances || [], onToggle: a => upd("appliances", toggleInArray(form.appliances || [], a)) }),
     ),
 
-    // Tags
     h("div", { className: "form-group" },
       h("label", { className: "form-label" }, "Tags"),
       h("div", { className: "flex wrap gap-6", style: { marginBottom: 6 } },
@@ -316,7 +340,6 @@ function RecipeForm({ recipe, onSave, onCancel }) {
       ),
     ),
 
-    // Ingredients
     h("div", { className: "form-group" },
       h("div", { className: "flex-between mb-8" },
         h("label", { className: "form-label", style: { marginBottom: 0 } }, "Ingredients"),
@@ -335,7 +358,6 @@ function RecipeForm({ recipe, onSave, onCancel }) {
       ),
     ),
 
-    // Steps
     h("div", { className: "form-group" },
       h("div", { className: "flex-between mb-8" },
         h("label", { className: "form-label", style: { marginBottom: 0 } }, "Steps"),

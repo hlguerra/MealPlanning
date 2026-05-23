@@ -14,50 +14,44 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, onAddToGr
   const [locked,     setLocked]     = useState({});
 
   // Generator filters — initialise from settings defaults
-  const [days,       setDays]       = useState(7);
-  const [people,     setPeopleVal]  = useState(settings.people || 2);
-  const [mealTypes,  setMealTypes]  = useState(settings.defaultMealTypes?.length ? settings.defaultMealTypes : ["Dinner"]);
-  const [proteins,   setProteins]   = useState(settings.defaultProteins || []);
+  const [days,      setDays]      = useState(7);
+  const [people,    setPeopleVal] = useState(settings.people || 2);
+  const [mealTypes, setMealTypes] = useState(settings.defaultMealTypes?.length ? settings.defaultMealTypes : ["Dinner"]);
+  const [proteins,  setProteins]  = useState(settings.defaultProteins || []);
 
-  // Persist people count back to settings whenever it changes
+  // Persist people count back to settings
   const setPeople = n => {
     setPeopleVal(n);
     saveSettings({ ...settings, people: n });
   };
 
   const toggleMealType = t => setMealTypes(mt => toggleInArray(mt, t));
-  const toggleProtein  = p => setProteins(ps => toggleInArray(ps, p));
+  const toggleProtein  = p => setProteins(ps  => toggleInArray(ps, p));
 
   const totalNeeded = (keepLocked = false) => {
-    const lockedCount = keepLocked ? proposed.filter(p => locked[p.id]).length : 0;
-    return days * mealTypes.length - lockedCount;
+    const lc = keepLocked ? proposed.filter(p => locked[p.id]).length : 0;
+    return days * mealTypes.length - lc;
   };
 
-  // ── Prompt builder ──────────────────────────────────────────────────────────
+  // ── Optimized prompt — short, no web search ─────────────────────────────────
   const buildPrompt = (need, lockedMeals, isRegen = false) => {
-    const appStr     = myAppliances.length
-      ? `Preferred appliances (soft preference — exceptions OK for great meals): ${myAppliances.join(", ")}.`
-      : "";
-    const proteinStr = proteins.length
-      ? `Rotate through these protein types: ${proteins.join(", ")}.`
-      : "Any protein type.";
-    const typeStr    = mealTypes.join(", ");
-    const excludeStr = isRegen && lockedMeals.length
-      ? `Do NOT repeat these already selected meals: ${lockedMeals.map(m => m.name).join(", ")}.`
-      : "";
-    const savedStr   = recipes.length
-      ? `You may suggest these saved recipes if they fit: ${recipes.map(r => r.name).join(", ")}.`
-      : "";
+    const parts = [
+      `Suggest ${need} meals for ${people} people.`,
+      `Meal types: ${mealTypes.join(", ")}.`,
+    ];
 
-    return `Suggest ${need} meals for ${people} ${plural(people, "person")}. Cover these meal types each day: ${typeStr}.
-${proteinStr}
-${appStr}
-${excludeStr}
-${savedStr}
-Prefer practical, home-cook friendly meals.
-Each meal MUST include its mealType field (one of: Breakfast, Lunch, Dinner).
-Return ONLY a valid JSON array, no markdown fences:
-[{"name":"","mealType":"Dinner","proteins":["Chicken"],"estimatedCost":14,"notes":"Brief description"}]`;
+    if (proteins.length)      parts.push(`Proteins: ${proteins.join(", ")}.`);
+    if (myAppliances.length)  parts.push(`Prefer these appliances: ${myAppliances.slice(0, 5).join(", ")}.`);
+    if (isRegen && lockedMeals.length) parts.push(`Exclude: ${lockedMeals.map(m => m.name).join(", ")}.`);
+
+    // Only send up to 8 saved recipe names to keep prompt short
+    const savedNames = recipes.slice(0, 8).map(r => r.name);
+    if (savedNames.length) parts.push(`May include these saved recipes: ${savedNames.join(", ")}.`);
+
+    parts.push(`Each meal needs: name, mealType (${mealTypes.join("/")}), proteins array, estimatedCost number, notes string.`);
+    parts.push(`Return ONLY a JSON array, no markdown: [{"name":"","mealType":"Dinner","proteins":["Chicken"],"estimatedCost":12,"notes":""}]`);
+
+    return parts.join(" ");
   };
 
   // ── Generate ────────────────────────────────────────────────────────────────
@@ -70,13 +64,14 @@ Return ONLY a valid JSON array, no markdown fences:
     if (need <= 0) { setGenerating(false); return; }
 
     try {
-      const data     = await callClaude({ maxTokens: 1500, messages: [{ role: "user", content: buildPrompt(need, lockedMeals) }] });
+      // No tools — removes web search cost entirely
+      const data     = await callClaude({ maxTokens: 800, messages: [{ role: "user", content: buildPrompt(need, lockedMeals) }] });
       const text     = extractText(data.content);
       const newMeals = parseJSON(text).map(m => ({ ...m, id: uid() }));
       setProposed([...lockedMeals, ...newMeals]);
       addCost("mealPlan");
-    } catch {
-      setGenError("Could not generate meal plan. Check your API connection.");
+    } catch(e) {
+      setGenError("Could not generate meal plan. Check your connection.");
     }
     setGenerating(false);
   };
@@ -86,7 +81,7 @@ Return ONLY a valid JSON array, no markdown fences:
     const lockedMeals = proposed.filter(p => locked[p.id]);
     const need        = proposed.filter(p => !locked[p.id]).length;
     try {
-      const data     = await callClaude({ maxTokens: 1000, messages: [{ role: "user", content: buildPrompt(need, lockedMeals, true) }] });
+      const data     = await callClaude({ maxTokens: 800, messages: [{ role: "user", content: buildPrompt(need, lockedMeals, true) }] });
       const text     = extractText(data.content);
       const newMeals = parseJSON(text).map(m => ({ ...m, id: uid() }));
       setProposed([...lockedMeals, ...newMeals]);
@@ -98,7 +93,8 @@ Return ONLY a valid JSON array, no markdown fences:
   };
 
   const acceptPlan = () => {
-    setMealPlan(proposed.map(p => ({ ...p, id: uid() })));
+    const newPlan = proposed.map(p => ({ ...p, id: uid() }));
+    setMealPlan(newPlan);
     setProposed([]);
     setLocked({});
     showBanner("✓ Meal plan saved!", "success");
@@ -118,7 +114,6 @@ Return ONLY a valid JSON array, no markdown fences:
     showBanner("✓ Ingredients added to grocery list", "success");
   };
 
-  // Group a meal list by meal type for display
   const groupByType = list => MEAL_TYPES.reduce((acc, t) => {
     const items = list.filter(m => m.mealType === t || (t === "Dinner" && !m.mealType));
     if (items.length) acc[t] = items;
@@ -136,11 +131,10 @@ Return ONLY a valid JSON array, no markdown fences:
         : null,
     }),
 
-    // ── AI Generator card ────────────────────────────────────────────────────
+    // ── Generator ────────────────────────────────────────────────────────────
     h(Card, { style: { marginBottom: 20 } },
       h("div", { className: "font-bold font-serif mb-12", style: { fontSize: 15 } }, "✨ AI Meal Planner"),
 
-      // Days + People
       h("div", { className: "flex gap-10", style: { marginBottom: 14 } },
         h("div", { style: { flex: 1 } },
           h("div", { className: "form-label" }, "# of Days"),
@@ -152,7 +146,6 @@ Return ONLY a valid JSON array, no markdown fences:
         ),
       ),
 
-      // Meal types
       h("div", { style: { marginBottom: 14 } },
         h("div", { className: "form-label" }, "Meal Types"),
         h("div", { className: "flex gap-8" },
@@ -170,15 +163,13 @@ Return ONLY a valid JSON array, no markdown fences:
         ),
       ),
 
-      // Proteins
       h("div", { style: { marginBottom: 14 } },
-        h("div", { className: "form-label" }, "Protein  ",
-          h("span", { className: "muted", style: { fontWeight: 400, fontSize: 11 } }, "(leave blank for any)"),
+        h("div", { className: "form-label" }, "Protein ",
+          h("span", { className: "muted", style: { fontWeight: 400, fontSize: 11 } }, "(blank = any)"),
         ),
         h(PillToggle, { options: PROTEINS, selected: proteins, onToggle: toggleProtein }),
       ),
 
-      // Summary line
       mealTypes.length > 0 && h("div", { style: { fontSize: 12, color: "#7A6A55", marginBottom: 10, textAlign: "center", padding: "8px", background: "#FFF8F0", borderRadius: 8 } },
         h("strong", { style: { color: "#D4622A" } }, `${totalMealsCount} ${plural(totalMealsCount, "meal")}`),
         ` · ${days} ${plural(days, "day")} × ${mealTypes.length} meal${mealTypes.length > 1 ? "s" : ""}/day · ${people} ${plural(people, "person")}`,
@@ -194,22 +185,35 @@ Return ONLY a valid JSON array, no markdown fences:
       genError && h("div", { className: "warn text-sm mt-8" }, genError),
     ),
 
-    // ── Proposed plan ────────────────────────────────────────────────────────
+    // ── Proposed plan ─────────────────────────────────────────────────────────
     proposed.length > 0 && h(Card, { className: "proposed-card", style: { marginBottom: 20 } },
       h("div", { className: "primary font-bold font-serif", style: { fontSize: 15, marginBottom: 4 } }, "Proposed Plan"),
-      h("div", { className: "muted text-sm mb-12" }, "🔒 Lock meals you like, then regenerate the rest."),
+      h("div", { style: { display: "flex", alignItems: "center", gap: 16, marginBottom: 12 } },
+        h("div", { className: "muted text-sm" },
+          h("span", { style: { color: "#2A7D4F", fontWeight: 700 } }, "✅ = keep  "),
+          h("span", { style: { color: "#C0392B", fontWeight: 700 } }, "❌ = regenerate"),
+        ),
+      ),
 
       Object.entries(groupByType(proposed)).map(([type, meals]) =>
         h("div", { key: type, style: { marginBottom: 12 } },
           h("div", { className: "grocery-section-label" }, `${MEAL_ICONS[type]} ${type}`),
           meals.map(m =>
-            h("div", { key: m.id, className: "flex-center gap-10 divider", style: { padding: "8px 0" } },
+            h("div", { key: m.id, className: "flex-center gap-10 divider", style: { padding: "10px 0" } },
+              // Lock toggle — ✅ locked, ❌ unlocked
               h("button", {
                 type: "button",
-                style: { fontSize: 20, background: "none", border: "none", cursor: "pointer", flexShrink: 0 },
                 onClick: () => toggleLock(m.id),
-                title: locked[m.id] ? "Unlock this meal" : "Lock this meal",
-              }, locked[m.id] ? "🔒" : "🔓"),
+                title: locked[m.id] ? "Click to mark for regeneration" : "Click to keep this meal",
+                style: {
+                  fontSize: 22,
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  flexShrink: 0,
+                  lineHeight: 1,
+                },
+              }, locked[m.id] ? "✅" : "❌"),
               h("div", { style: { flex: 1 } },
                 h("div", { className: "font-bold", style: { fontSize: 14 } }, m.name),
                 h("div", { className: "muted text-sm" },
@@ -224,19 +228,19 @@ Return ONLY a valid JSON array, no markdown fences:
       ),
 
       h("div", { className: "flex gap-10", style: { marginTop: 14 } },
-        h(Btn, { label: "Regenerate Unlocked", variant: "ghost", onClick: regenerateUnlocked, disabled: generating, style: { flex: 1, fontSize: 12 } }),
+        h(Btn, { label: "Regenerate ❌ Meals", variant: "ghost", onClick: regenerateUnlocked, disabled: generating, style: { flex: 1, fontSize: 12 } }),
         h(Btn, { label: "Accept Plan", onClick: acceptPlan, style: { flex: 1 } }),
       ),
     ),
 
-    // ── Empty state ──────────────────────────────────────────────────────────
+    // ── Empty state ───────────────────────────────────────────────────────────
     mealPlan.length === 0 && proposed.length === 0 && h(EmptyState, {
       icon: "🗓",
       title: "No meals planned yet",
       sub: "Generate a plan above or add meals from your recipes",
     }),
 
-    // ── Current plan ─────────────────────────────────────────────────────────
+    // ── Current plan ──────────────────────────────────────────────────────────
     mealPlan.length > 0 && h("div", null,
       h("div", { className: "font-bold font-serif mb-12", style: { fontSize: 16 } }, "Current Plan"),
 

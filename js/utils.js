@@ -86,7 +86,7 @@ window.APP.utils = {
     };
     if (tools) body.tools = tools;
 
-    const res = await fetch(window.APP.API_URL, {
+const res = await fetch("https://us-central1-meal-planner-5df26.cloudfunctions.net/anthropicProxy", {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify(body),

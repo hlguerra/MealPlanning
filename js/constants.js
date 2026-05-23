@@ -173,5 +173,5 @@ window.APP.SEED_STAPLES = [
 
 // ── Anthropic API ─────────────────────────────────────────────────────────────
 window.APP.API_URL   = "https://api.anthropic.com/v1/messages";
-window.APP.API_MODEL = "claude-sonnet-4-20250514";
+window.APP.API_MODEL = "claude-sonnet-4-6";
 window.APP.API_MAX_TOKENS = 1500;

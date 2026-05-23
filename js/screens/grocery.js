@@ -1,15 +1,15 @@
 // ── js/screens/grocery.js ─────────────────────────────────────────────────────
 window.APP = window.APP || {};
 const { createElement: h, useState } = React;
-const { Btn, Card, SectionHeader, EmptyState, CollapsibleSection, ModeToggle } = window.APP;
+const { Btn, Card, SectionHeader, EmptyState, CollapsibleSection, ModeToggle, SyncIndicator } = window.APP;
 const { uid, fmt$, callClaude, extractText, parseJSON } = window.APP.utils;
 const { categorize } = window.APP;
 const { SECTIONS } = window.APP;
 
 // ── GroceryScreen ─────────────────────────────────────────────────────────────
 window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setStaples, settings, addCost, showBanner }) {
-  const [input,      setInput]      = useState("");
-  const [showStaples,setShowStaples]= useState(false);
+  const [input,       setInput]       = useState("");
+  const [showStaples, setShowStaples] = useState(false);
 
   // ── Item actions (no PIN required) ─────────────────────────────────────────
   const addItem = () => {
@@ -20,10 +20,10 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
     setInput("");
   };
 
-  const toggleItem  = id  => setGroceryList(l => l.map(i => i.id === id ? { ...i, checked: !i.checked } : i));
-  const deleteItem  = id  => setGroceryList(l => l.filter(i => i.id !== id));
-  const clearChecked = () => setGroceryList(l => l.filter(i => !i.checked));
-  const clearAll     = () => setGroceryList([]);
+  const toggleItem   = id  => setGroceryList(l => l.map(i => i.id === id ? { ...i, checked: !i.checked } : i));
+  const deleteItem   = id  => setGroceryList(l => l.filter(i => i.id !== id));
+  const clearChecked = ()  => setGroceryList(l => l.filter(i => !i.checked));
+  const clearAll     = ()  => setGroceryList([]);
 
   // ── Staple actions (no PIN) ─────────────────────────────────────────────────
   const toggleStaple = (staple, checked) => {
@@ -37,8 +37,7 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
   const addStaple = name => {
     const trimmed = name.trim();
     if (!trimmed) return;
-    const section = categorize(trimmed);
-    setStaples(s => [...s, { id: uid(), name: trimmed, section }]);
+    setStaples(s => [...s, { id: uid(), name: trimmed, section: categorize(trimmed) }]);
   };
 
   const removeStaple = id => setStaples(s => s.filter(x => x.id !== id));
@@ -60,6 +59,9 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
         ? h(Btn, { label: `Clear ${checkedCount} ✓`, variant: "ghost", onClick: clearChecked, className: "btn-sm" })
         : null,
     }),
+
+    // ── Sync indicator ────────────────────────────────────────────────────────
+    h(SyncIndicator),
 
     // ── Add item ──────────────────────────────────────────────────────────────
     h(Card, { style: { marginBottom: 16 } },
@@ -196,7 +198,6 @@ function PriceCompareSection({ groceryList, settings, addCost }) {
   };
 
   return h(Card, { style: { marginTop: 8 } },
-    // Toggle header
     h("button", {
       className: "collapsible-toggle",
       onClick: () => setOpen(v => !v),
@@ -207,7 +208,6 @@ function PriceCompareSection({ groceryList, settings, addCost }) {
     ),
 
     open && h("div", { style: { marginTop: 12 } },
-      // Mode toggle
       h("div", { style: { marginBottom: 10 } },
         h("div", { className: "form-label" }, "Store Type"),
         h(ModeToggle, { value: mode, onChange: setMode, options: ["Online", "In-Store", "Both"] }),
@@ -222,11 +222,8 @@ function PriceCompareSection({ groceryList, settings, addCost }) {
         style: { marginBottom: 10 },
       }),
 
-      // Results
       result && !result.error && h("div", null,
         h("div", { className: "price-disclaimer" }, "* Prices are estimates and may vary. Verify before shopping."),
-
-        // Store rankings
         (result.stores || []).map((s, i) =>
           h("div", { key: i, style: { display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: "1px solid #F0E6D3" } },
             h("div", { className: `price-rank ${i === 0 ? "price-rank-1" : "price-rank-n"}` }, i + 1),
@@ -237,8 +234,6 @@ function PriceCompareSection({ groceryList, settings, addCost }) {
             h("div", { className: "accent font-bold", style: { fontSize: 16 } }, fmt$(s.estimatedTotal)),
           )
         ),
-
-        // Biggest savings
         result.biggestSavings?.length > 0 && h("div", { style: { marginTop: 12 } },
           h("div", { className: "grocery-section-label", style: { marginBottom: 6 } }, "🏷 Biggest Savings"),
           result.biggestSavings.map((s, i) =>

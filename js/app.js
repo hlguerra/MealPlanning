@@ -1,20 +1,19 @@
 // ── js/app.js ─────────────────────────────────────────────────────────────────
 // Root component. Owns all top-level state and wires screens together.
 
-const { createElement: h, useState, useCallback } = React;
+const { createElement: h, useState, useEffect, useCallback } = React;
 const {
-  usePersist, useCostLog, useBanner, usePinGuard, useSettings,
+  usePersist, useCostLog, useBanner, usePinGuard,
   BottomNav, Banner,
   HomeScreen, RecipesScreen, MealPlanScreen,
   GroceryScreen, PantryScreen, SettingsScreen,
 } = window.APP;
-const { uid, scaleAmt, fmtIngredient } = window.APP.utils;
-const { categorize } = window.APP;
+const { uid, scaleAmt } = window.APP.utils;
+const { categorize }    = window.APP;
 const { SEED_RECIPES, SEED_STAPLES, DEFAULT_APPLIANCES } = window.APP;
 
 // ── App ───────────────────────────────────────────────────────────────────────
 function App() {
-  // ── Screen ──────────────────────────────────────────────────────────────────
   const [screen, setScreen] = useState("home");
 
   // ── Persisted state ──────────────────────────────────────────────────────────
@@ -25,34 +24,64 @@ function App() {
   const [staples,      setStaples]      = usePersist("hmp_staples",      SEED_STAPLES);
   const [myAppliances, setMyAppliances] = usePersist("hmp_appliances",   DEFAULT_APPLIANCES);
   const [settings,     setSettings]     = usePersist("hmp_settings",     window.APP.DEFAULT_SETTINGS);
+  const [costLog,      setCostLog]      = usePersist("hmp_costlog",      []);
 
   // ── Cross-cutting hooks ──────────────────────────────────────────────────────
-  const { addCost, total30 }  = useCostLog();
-  const { banner, showBanner } = useBanner();
+  const { addCost, total30 }     = useCostLog();
+  const { banner, showBanner }   = useBanner();
   const { pinModal, requestPin } = usePinGuard(settings.pin);
 
   // ── Settings save ────────────────────────────────────────────────────────────
   const saveSettings = useCallback(s => setSettings(s), [setSettings]);
 
+  // ── Firebase sync ─────────────────────────────────────────────────────────────
+  // Start sync when app loads. Restarts if householdId changes.
+  useEffect(() => {
+    const householdId = settings.householdId;
+    if (!householdId || !window.APP.startSync) return;
+
+    const stop = window.APP.startSync(
+      householdId,
+      // Callbacks — Firebase overwrites local state
+      {
+        setGroceryList,
+        setRecipes,
+        setCostLog,
+      },
+      // Current local data — used for initial push if Firebase is empty
+      {
+        groceryList,
+        recipes,
+        costLog,
+      },
+    );
+
+    return stop; // Cleans up interval on unmount or householdId change
+  }, [settings.householdId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Push to Firebase after local changes ──────────────────────────────────────
+  // Debounced — waits 1.5s after last change before writing.
+  useEffect(() => {
+    if (!settings.householdId || !window.APP.schedulePush) return;
+    window.APP.schedulePush(settings.householdId, { groceryList, recipes, costLog });
+  }, [groceryList, recipes, costLog, settings.householdId]);
+
   // ── Add recipe to meal plan ──────────────────────────────────────────────────
-  // Does NOT navigate away — caller shows its own banner.
   const addToMealPlan = useCallback(recipe => {
     setMealPlan(mp => [
       ...mp,
       {
-        id:           uid(),
-        name:         recipe.name,
-        mealType:     "Dinner",
-        course:       recipe.course,
-        proteins:     recipe.proteins || [],
-        estimatedCost:recipe.estimatedCost || 0,
+        id:            uid(),
+        name:          recipe.name,
+        mealType:      "Dinner",
+        course:        recipe.course,
+        proteins:      recipe.proteins || [],
+        estimatedCost: recipe.estimatedCost || 0,
       },
     ]);
   }, [setMealPlan]);
 
   // ── Add recipe ingredients to grocery list ───────────────────────────────────
-  // Merges intelligently — skips items already on the list (case-insensitive).
-  // Stores amount and unit separately to avoid display doubling.
   const addToGrocery = useCallback((recipe, servings) => {
     const scaledItems = (recipe.ingredients || []).map(ing => ({
       id:      uid(),
@@ -73,7 +102,7 @@ function App() {
       return merged;
     });
 
-    showBanner(`✓ Ingredients added to grocery list`, "success");
+    showBanner("✓ Ingredients added to grocery list", "success");
     setScreen("grocery");
   }, [setGroceryList, showBanner]);
 
@@ -88,8 +117,8 @@ function App() {
       settings,
       mealPlan,
       groceryList,
-      onNav:        setScreen,
-      onQuickAdd:   quickAddGrocery,
+      onNav:      setScreen,
+      onQuickAdd: quickAddGrocery,
       addCost,
       showBanner,
     }),
@@ -146,18 +175,11 @@ function App() {
 
   // ── Root render ──────────────────────────────────────────────────────────────
   return h(React.Fragment, null,
-    // Global banner (success / error)
     h(Banner, { banner }),
-
-    // Screen content
     h("div", { className: "app-container" },
       screens[screen] || screens.home,
     ),
-
-    // Bottom navigation
     h(BottomNav, { active: screen, onNav: setScreen }),
-
-    // PIN modal (rendered at root so it overlays everything)
     pinModal,
   );
 }

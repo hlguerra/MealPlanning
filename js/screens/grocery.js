@@ -1,7 +1,7 @@
 // ── js/screens/grocery.js ─────────────────────────────────────────────────────
 window.APP = window.APP || {};
-const { createElement: h, useState } = React;
-const { Btn, Card, SectionHeader, EmptyState, CollapsibleSection, ModeToggle, SyncIndicator } = window.APP;
+const { createElement: h, useState, useRef } = React;
+const { Btn, Card, SectionHeader, EmptyState, CollapsibleSection, SyncIndicator } = window.APP;
 const { uid, fmt$, callClaude, extractText, parseJSON } = window.APP.utils;
 const { categorize } = window.APP;
 const { SECTIONS } = window.APP;
@@ -20,8 +20,8 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
     setInput("");
   };
 
-  const toggleItem   = id  => setGroceryList(l => l.map(i => i.id === id ? { ...i, checked: !i.checked } : i));
-  const deleteItem   = id  => setGroceryList(l => l.filter(i => i.id !== id));
+  const toggleItem   = id => setGroceryList(l => l.map(i  => i.id === id ? { ...i, checked: !i.checked } : i));
+  const deleteItem   = id => setGroceryList(l => l.filter(i => i.id !== id));
   const clearChecked = ()  => setGroceryList(l => l.filter(i => !i.checked));
   const clearAll     = ()  => setGroceryList([]);
 
@@ -34,13 +34,8 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
     }
   };
 
-  const addStaple = name => {
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    setStaples(s => [...s, { id: uid(), name: trimmed, section: categorize(trimmed) }]);
-  };
-
-  const removeStaple = id => setStaples(s => s.filter(x => x.id !== id));
+  const addStaple    = name => { const t = name.trim(); if (!t) return; setStaples(s => [...s, { id: uid(), name: t, section: categorize(t) }]); };
+  const removeStaple = id   => setStaples(s => s.filter(x => x.id !== id));
 
   // ── Grouping ────────────────────────────────────────────────────────────────
   const grouped = SECTIONS.reduce((acc, s) => {
@@ -60,10 +55,10 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
         : null,
     }),
 
-    // ── Sync indicator ────────────────────────────────────────────────────────
+    // Sync indicator
     h(SyncIndicator),
 
-    // ── Add item ──────────────────────────────────────────────────────────────
+    // Add item
     h(Card, { style: { marginBottom: 16 } },
       h("div", { className: "flex gap-8" },
         h("input", {
@@ -78,7 +73,7 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
       ),
     ),
 
-    // ── Staples ───────────────────────────────────────────────────────────────
+    // Staples
     h(Card, { style: { marginBottom: 16 } },
       h(CollapsibleSection, { title: "📌 Staples" },
         staples.map(s =>
@@ -94,7 +89,6 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
             h("button", {
               onClick: () => removeStaple(s.id),
               style: { background: "none", border: "none", cursor: "pointer", color: "#C0392B", fontSize: 16, opacity: 0.5, marginLeft: 4 },
-              title: "Remove staple",
             }, "×"),
           )
         ),
@@ -102,24 +96,19 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
           className: "form-input",
           style: { marginTop: 10 },
           placeholder: "Add staple… (press Enter)",
-          onKeyDown: e => {
-            if (e.key === "Enter" && e.target.value.trim()) {
-              addStaple(e.target.value);
-              e.target.value = "";
-            }
-          },
+          onKeyDown: e => { if (e.key === "Enter" && e.target.value.trim()) { addStaple(e.target.value); e.target.value = ""; } },
         }),
       ),
     ),
 
-    // ── Empty state ───────────────────────────────────────────────────────────
+    // Empty state
     groceryList.length === 0 && h(EmptyState, {
       icon: "🛒",
       title: "Your list is empty",
       sub: "Add items above or generate from your meal plan",
     }),
 
-    // ── Grouped items ─────────────────────────────────────────────────────────
+    // Grouped items
     Object.entries(grouped).map(([section, items]) =>
       h("div", { key: section, style: { marginBottom: 16 } },
         h("div", { className: "grocery-section-label" }, section),
@@ -131,28 +120,22 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
               onChange: () => toggleItem(item.id),
               style: { width: 18, height: 18, accentColor: "#2A7D4F", flexShrink: 0, cursor: "pointer" },
             }),
-            h("span", {
-              className: `grocery-item-name ${item.checked ? "checked" : ""}`,
-            },
+            h("span", { className: `grocery-item-name ${item.checked ? "checked" : ""}` },
               item.name,
               item.amount ? ` — ${item.amount}${item.unit ? " " + item.unit : ""}` : "",
             ),
-            h("button", {
-              className: "grocery-item-delete",
-              onClick: () => deleteItem(item.id),
-              title: "Remove item",
-            }, "×"),
+            h("button", { className: "grocery-item-delete", onClick: () => deleteItem(item.id) }, "×"),
           )
         ),
       )
     ),
 
-    // ── Clear all ─────────────────────────────────────────────────────────────
+    // Clear all
     groceryList.length > 0 && h("div", { className: "flex", style: { justifyContent: "flex-end", marginTop: 8, marginBottom: 24 } },
       h(Btn, { label: "Clear All", variant: "danger", onClick: clearAll, className: "btn-sm" }),
     ),
 
-    // ── Price comparison (bottom) ─────────────────────────────────────────────
+    // Price comparison (bottom)
     h(PriceCompareSection, { groceryList, settings, addCost }),
   );
 };
@@ -160,39 +143,44 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
 // ── PriceCompareSection ───────────────────────────────────────────────────────
 function PriceCompareSection({ groceryList, settings, addCost }) {
   const [open,    setOpen]    = useState(false);
-  const [mode,    setMode]    = useState("Both");
   const [loading, setLoading] = useState(false);
   const [result,  setResult]  = useState(null);
   const [error,   setError]   = useState("");
+  const cacheRef              = useRef({});
 
   const compare = async () => {
     if (!groceryList.length) return;
+
+    // Cache key based on sorted item names
+    const cacheKey = groceryList.map(i => i.name).sort().join(",");
+    if (cacheRef.current[cacheKey]) { setResult(cacheRef.current[cacheKey]); return; }
+
     setLoading(true); setResult(null); setError("");
 
-    const items   = groceryList.map(i => i.name).join(", ");
-    const zip     = settings.zipCode || "";
-    const modeStr = mode === "Both"
-      ? "both online and in-store"
-      : mode === "Online" ? "online retailers only"
-      : `in-store retailers${zip ? " near " + zip : ""}`;
+    const items = groceryList.map(i => i.name).join(", ");
+    const zip   = settings.zipCode || "44691";
 
     try {
       const data = await callClaude({
-        maxTokens: 1000,
-        tools: [{ type: "web_search_20250305", name: "web_search" }],
+        maxTokens: 500,
         messages: [{
           role: "user",
-          content: `I need to buy these groceries: ${items}.${zip ? " Near zip code " + zip + "." : ""} Compare prices at ${modeStr}. Find the top 3 stores with the best total basket price. Also identify the 2–3 biggest individual savings (items where one store is notably cheaper than another). Return ONLY valid JSON, no markdown fences:
-{"stores":[{"name":"","type":"In-Store or Online","estimatedTotal":0,"notes":""}],"biggestSavings":[{"item":"","bestStore":"","bestPrice":0,"vs":"","vsPrice":0}]}`,
+          content: `Based on your knowledge of typical grocery prices near Wooster, Ohio (zip ${zip}), estimate the total basket cost for these items at local stores: ${items}.
+
+Compare Walmart, Meijer, Aldi, Marc's, and Buehler's. Rank the top 3 by lowest estimated total. Also identify the 2-3 items with the biggest price differences between stores (biggest savings opportunities).
+
+Return ONLY valid JSON, no markdown:
+{"stores":[{"name":"","estimatedTotal":0,"note":""}],"biggestSavings":[{"item":"","bestStore":"","bestPrice":0,"vs":"","vsPrice":0}]}`,
         }],
       });
 
       const text   = extractText(data.content);
       const parsed = parseJSON(text);
+      cacheRef.current[cacheKey] = parsed;
       setResult(parsed);
       addCost("priceList");
     } catch {
-      setError("Could not load price comparison. Check your connection and try again.");
+      setError("Could not load price comparison. Try again.");
     }
     setLoading(false);
   };
@@ -208,13 +196,12 @@ function PriceCompareSection({ groceryList, settings, addCost }) {
     ),
 
     open && h("div", { style: { marginTop: 12 } },
-      h("div", { style: { marginBottom: 10 } },
-        h("div", { className: "form-label" }, "Store Type"),
-        h(ModeToggle, { value: mode, onChange: setMode, options: ["Online", "In-Store", "Both"] }),
+      h("div", { className: "muted text-xs", style: { marginBottom: 10 } },
+        "Estimates based on typical Wooster-area prices. Not live data — verify before shopping.",
       ),
 
       h(Btn, {
-        label: loading ? "Searching…" : "Compare Full List",
+        label: loading ? "Comparing…" : "Compare Full List",
         icon: "🔍",
         onClick: compare,
         disabled: loading || !groceryList.length,
@@ -222,18 +209,20 @@ function PriceCompareSection({ groceryList, settings, addCost }) {
         style: { marginBottom: 10 },
       }),
 
-      result && !result.error && h("div", null,
-        h("div", { className: "price-disclaimer" }, "* Prices are estimates and may vary. Verify before shopping."),
+      result && h("div", null,
+        // Store rankings
         (result.stores || []).map((s, i) =>
           h("div", { key: i, style: { display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: "1px solid #F0E6D3" } },
             h("div", { className: `price-rank ${i === 0 ? "price-rank-1" : "price-rank-n"}` }, i + 1),
             h("div", { style: { flex: 1 } },
               h("div", { className: "font-bold", style: { fontSize: 14 } }, s.name),
-              h("div", { className: "muted text-sm" }, s.type + (s.notes ? " · " + s.notes : "")),
+              s.note && h("div", { className: "muted text-sm" }, s.note),
             ),
             h("div", { className: "accent font-bold", style: { fontSize: 16 } }, fmt$(s.estimatedTotal)),
           )
         ),
+
+        // Biggest savings
         result.biggestSavings?.length > 0 && h("div", { style: { marginTop: 12 } },
           h("div", { className: "grocery-section-label", style: { marginBottom: 6 } }, "🏷 Biggest Savings"),
           result.biggestSavings.map((s, i) =>

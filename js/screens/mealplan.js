@@ -6,52 +6,95 @@ const { uid, fmt$, callClaude, extractText, parseJSON, toggleInArray, plural } =
 const { MEAL_TYPES, MEAL_ICONS, PROTEINS } = window.APP;
 
 // ── MealPlanScreen ────────────────────────────────────────────────────────────
-window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, onAddToGrocery, requestPin, settings, saveSettings, myAppliances, addCost, showBanner }) {
+window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, cookHistory, onAddToGrocery, onMarkAsMade, requestPin, settings, saveSettings, myAppliances, addCost, showBanner }) {
 
   const [generating, setGenerating] = useState(false);
   const [genError,   setGenError]   = useState("");
   const [proposed,   setProposed]   = useState([]);
   const [locked,     setLocked]     = useState({});
+  const [markingId,  setMarkingId]  = useState(null); // id of meal being marked as made
+  const [markDate,   setMarkDate]   = useState(new Date().toISOString().split("T")[0]);
+  const [clearConfirm, setClearConfirm] = useState(false);
 
-  // Generator filters — initialise from settings defaults
-  const [days,      setDays]      = useState(7);
-  const [people,    setPeopleVal] = useState(settings.people || 2);
+  // Generator filters
+  const [daysStr,   setDaysStr]   = useState("7");
+  const [peopleStr, setPeopleStr] = useState(String(settings.people || 2));
   const [mealTypes, setMealTypes] = useState(settings.defaultMealTypes?.length ? settings.defaultMealTypes : ["Dinner"]);
   const [proteins,  setProteins]  = useState(settings.defaultProteins || []);
 
-  // Persist people count back to settings
-  const setPeople = n => {
-    setPeopleVal(n);
+  const days   = parseInt(daysStr)   || 1;
+  const people = parseInt(peopleStr) || 1;
+
+  // Persist people count to settings
+  const handlePeopleBlur = () => {
+    const n = Math.max(1, parseInt(peopleStr) || 1);
+    setPeopleStr(String(n));
     saveSettings({ ...settings, people: n });
   };
 
   const toggleMealType = t => setMealTypes(mt => toggleInArray(mt, t));
   const toggleProtein  = p => setProteins(ps  => toggleInArray(ps, p));
 
-  const totalNeeded = (keepLocked = false) => {
-    const lc = keepLocked ? proposed.filter(p => locked[p.id]).length : 0;
-    return days * mealTypes.length - lc;
-  };
+  // ── Cook history helpers ────────────────────────────────────────────────────
+  // Recipes not made recently (last 30 days)
+  const recentlyMade = new Set(
+    (cookHistory || [])
+      .filter(e => Date.now() - e.madeAt < 30 * 24 * 60 * 60 * 1000)
+      .map(e => e.recipeName)
+  );
 
-  // ── Optimized prompt — short, no web search ─────────────────────────────────
-  const buildPrompt = (need, lockedMeals, isRegen = false) => {
+  // Saved recipes not made recently — prioritize these in generation
+  const savedRecipesNotRecent = recipes
+    .filter(r => !recentlyMade.has(r.name))
+    .slice(0, 6)
+    .map(r => r.name);
+
+  const savedRecipesRecent = recipes
+    .filter(r => recentlyMade.has(r.name))
+    .slice(0, 3)
+    .map(r => r.name);
+
+  // Cuisines/proteins not had recently
+  const recentProteins = new Set(
+    (cookHistory || [])
+      .filter(e => Date.now() - e.madeAt < 14 * 24 * 60 * 60 * 1000)
+      .flatMap(e => e.proteins || [])
+  );
+
+  const suggestedProteins = PROTEINS.filter(p => !recentProteins.has(p) && p !== "Other").slice(0, 3);
+
+  // ── Prompt builder ──────────────────────────────────────────────────────────
+  const buildPrompt = (need, excludeNames = []) => {
     const parts = [
-      `Suggest ${need} meals for ${people} people.`,
-      `Meal types: ${mealTypes.join(", ")}.`,
+      `Suggest ${need} meals for ${people} ${plural(people, "person")}.`,
+      `Meal types needed: ${mealTypes.join(", ")}.`,
     ];
 
-    if (proteins.length)      parts.push(`Proteins: ${proteins.join(", ")}.`);
-    if (myAppliances.length)  parts.push(`Prefer these appliances: ${myAppliances.slice(0, 5).join(", ")}.`);
-    if (isRegen && lockedMeals.length) parts.push(`Exclude: ${lockedMeals.map(m => m.name).join(", ")}.`);
+    if (proteins.length) parts.push(`Proteins: ${proteins.join(", ")}.`);
 
-    // Only send up to 8 saved recipe names to keep prompt short
-    const savedNames = recipes.slice(0, 8).map(r => r.name);
-    if (savedNames.length) parts.push(`May include these saved recipes: ${savedNames.join(", ")}.`);
+    if (myAppliances.length) parts.push(`Prefer appliances: ${myAppliances.slice(0, 4).join(", ")}.`);
 
-    parts.push(`Each meal needs: name, mealType (${mealTypes.join("/")}), proteins array, estimatedCost number, notes string.`);
-    parts.push(`Return ONLY a JSON array, no markdown: [{"name":"","mealType":"Dinner","proteins":["Chicken"],"estimatedCost":12,"notes":""}]`);
+    // Prioritize saved recipes not made recently
+    if (savedRecipesNotRecent.length) {
+      parts.push(`PRIORITIZE these saved recipes first (not made recently): ${savedRecipesNotRecent.join(", ")}.`);
+    }
+    if (savedRecipesRecent.length) {
+      parts.push(`These saved recipes were made recently, avoid repeating: ${savedRecipesRecent.join(", ")}.`);
+    }
+
+    // Exclude already proposed/locked meals
+    if (excludeNames.length) {
+      parts.push(`Do NOT suggest any of these (already selected): ${excludeNames.join(", ")}.`);
+    }
+
+    parts.push(`Return ONLY a JSON array, no markdown: [{"name":"","mealType":"Dinner","proteins":["Chicken"],"estimatedCost":12,"notes":"","fromSavedRecipe":false}]`);
 
     return parts.join(" ");
+  };
+
+  const totalNeeded = (keepLocked = false) => {
+    const lc = keepLocked ? proposed.filter(p => locked[p.id]).length : 0;
+    return Math.max(days, 1) * mealTypes.length - lc;
   };
 
   // ── Generate ────────────────────────────────────────────────────────────────
@@ -59,18 +102,18 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, onAddToGr
     if (!mealTypes.length) { setGenError("Select at least one meal type."); return; }
     setGenerating(true); setGenError("");
 
-    const lockedMeals = keepLocked ? proposed.filter(p => locked[p.id]) : [];
-    const need        = totalNeeded(keepLocked);
+    const lockedMeals   = keepLocked ? proposed.filter(p => locked[p.id]) : [];
+    const excludeNames  = proposed.map(p => p.name); // exclude ALL current proposed
+    const need          = totalNeeded(keepLocked);
     if (need <= 0) { setGenerating(false); return; }
 
     try {
-      // No tools — removes web search cost entirely
-      const data     = await callClaude({ maxTokens: 800, messages: [{ role: "user", content: buildPrompt(need, lockedMeals) }] });
+      const data     = await callClaude({ maxTokens: 600, messages: [{ role: "user", content: buildPrompt(need, keepLocked ? excludeNames : []) }] });
       const text     = extractText(data.content);
       const newMeals = parseJSON(text).map(m => ({ ...m, id: uid() }));
       setProposed([...lockedMeals, ...newMeals]);
       addCost("mealPlan");
-    } catch(e) {
+    } catch {
       setGenError("Could not generate meal plan. Check your connection.");
     }
     setGenerating(false);
@@ -78,10 +121,13 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, onAddToGr
 
   const regenerateUnlocked = async () => {
     setGenerating(true);
-    const lockedMeals = proposed.filter(p => locked[p.id]);
-    const need        = proposed.filter(p => !locked[p.id]).length;
+    const lockedMeals  = proposed.filter(p => locked[p.id]);
+    const need         = proposed.filter(p => !locked[p.id]).length;
+    // Exclude ALL current proposed meals (locked + unlocked) so we get fresh suggestions
+    const excludeNames = proposed.map(p => p.name);
+
     try {
-      const data     = await callClaude({ maxTokens: 800, messages: [{ role: "user", content: buildPrompt(need, lockedMeals, true) }] });
+      const data     = await callClaude({ maxTokens: 600, messages: [{ role: "user", content: buildPrompt(need, excludeNames) }] });
       const text     = extractText(data.content);
       const newMeals = parseJSON(text).map(m => ({ ...m, id: uid() }));
       setProposed([...lockedMeals, ...newMeals]);
@@ -93,18 +139,15 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, onAddToGr
   };
 
   const acceptPlan = () => {
-    const newPlan = proposed.map(p => ({ ...p, id: uid() }));
-    setMealPlan(newPlan);
+    setMealPlan(proposed.map(p => ({ ...p, id: uid(), checked: false })));
     setProposed([]);
     setLocked({});
     showBanner("✓ Meal plan saved!", "success");
   };
 
-  const toggleLock = id => setLocked(l => ({ ...l, [id]: !l[id] }));
-
-  const deleteMeal = id => requestPin(() => {
-    setMealPlan(mp => mp.filter(m => m.id !== id));
-  });
+  const toggleLock   = id => setLocked(l => ({ ...l, [id]: !l[id] }));
+  const deleteMeal   = id => requestPin(() => setMealPlan(mp => mp.filter(m => m.id !== id)));
+  const clearAll     = ()  => requestPin(() => { setMealPlan([]); setClearConfirm(false); showBanner("Meal plan cleared.", "success"); });
 
   const addAllToGrocery = () => {
     mealPlan.forEach(m => {
@@ -120,16 +163,41 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, onAddToGr
     return acc;
   }, {});
 
-  const totalMealsCount = days * mealTypes.length;
+  const totalMealsCount = Math.max(days, 1) * mealTypes.length;
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return h("div", null,
     h(SectionHeader, {
       title: "Meal Plan",
-      action: mealPlan.length > 0
-        ? h(Btn, { label: "→ Grocery", variant: "accent", icon: "🛒", onClick: addAllToGrocery, className: "btn-sm" })
-        : null,
+      action: h("div", { className: "flex gap-8" },
+        mealPlan.length > 0 && h(Btn, { label: "→ Grocery", variant: "accent", icon: "🛒", onClick: addAllToGrocery, className: "btn-sm" }),
+        mealPlan.length > 0 && h(Btn, { label: "Clear All", variant: "danger", onClick: () => setClearConfirm(true), className: "btn-sm" }),
+      ),
     }),
+
+    // Clear all confirm
+    clearConfirm && h(Card, { style: { marginBottom: 16, border: "2px solid #C0392B" } },
+      h("div", { className: "font-bold mb-8", style: { fontSize: 14 } }, "Clear the entire meal plan?"),
+      h("div", { className: "flex gap-8" },
+        h(Btn, { label: "Cancel", variant: "ghost", onClick: () => setClearConfirm(false), style: { flex: 1 } }),
+        h(Btn, { label: "Yes, Clear All", variant: "danger", onClick: clearAll, style: { flex: 1 } }),
+      ),
+    ),
+
+    // ── Suggested for You ────────────────────────────────────────────────────
+    cookHistory?.length > 0 && suggestedProteins.length > 0 && h(Card, { style: { marginBottom: 16, background: "#FFF8F0" } },
+      h("div", { className: "font-bold font-serif mb-8", style: { fontSize: 14 } }, "💡 Suggested for You"),
+      h("div", { className: "muted text-xs", style: { marginBottom: 8 } }, "Based on your cooking history — proteins you haven't had recently:"),
+      h("div", { className: "flex wrap gap-6" },
+        suggestedProteins.map(p =>
+          h("button", {
+            key: p,
+            onClick: () => setProteins(ps => ps.includes(p) ? ps : [...ps, p]),
+            style: { padding: "5px 14px", borderRadius: 20, border: "1.5px solid #D4622A", background: "#FDE8D8", color: "#D4622A", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" },
+          }, `+ ${p}`)
+        ),
+      ),
+    ),
 
     // ── Generator ────────────────────────────────────────────────────────────
     h(Card, { style: { marginBottom: 20 } },
@@ -138,11 +206,21 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, onAddToGr
       h("div", { className: "flex gap-10", style: { marginBottom: 14 } },
         h("div", { style: { flex: 1 } },
           h("div", { className: "form-label" }, "# of Days"),
-          h("input", { className: "form-input", type: "number", min: 1, max: 14, value: days, onChange: e => setDays(Math.max(1, +e.target.value)) }),
+          h("input", {
+            className: "form-input", type: "number", min: 1, max: 14,
+            value: daysStr,
+            onChange:  e => setDaysStr(e.target.value),
+            onBlur:    e => setDaysStr(String(Math.max(1, parseInt(e.target.value) || 1))),
+          }),
         ),
         h("div", { style: { flex: 1 } },
           h("div", { className: "form-label" }, "# of People"),
-          h("input", { className: "form-input", type: "number", min: 1, max: 20, value: people, onChange: e => setPeople(Math.max(1, +e.target.value)) }),
+          h("input", {
+            className: "form-input", type: "number", min: 1, max: 20,
+            value: peopleStr,
+            onChange:  e => setPeopleStr(e.target.value),
+            onBlur:    handlePeopleBlur,
+          }),
         ),
       ),
 
@@ -200,22 +278,17 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, onAddToGr
           h("div", { className: "grocery-section-label" }, `${MEAL_ICONS[type]} ${type}`),
           meals.map(m =>
             h("div", { key: m.id, className: "flex-center gap-10 divider", style: { padding: "10px 0" } },
-              // Lock toggle — ✅ locked, ❌ unlocked
               h("button", {
                 type: "button",
                 onClick: () => toggleLock(m.id),
                 title: locked[m.id] ? "Click to mark for regeneration" : "Click to keep this meal",
-                style: {
-                  fontSize: 22,
-                  background: "none",
-                  border: "none",
-                  cursor: "pointer",
-                  flexShrink: 0,
-                  lineHeight: 1,
-                },
+                style: { fontSize: 22, background: "none", border: "none", cursor: "pointer", flexShrink: 0, lineHeight: 1 },
               }, locked[m.id] ? "✅" : "❌"),
               h("div", { style: { flex: 1 } },
-                h("div", { className: "font-bold", style: { fontSize: 14 } }, m.name),
+                h("div", { className: "font-bold", style: { fontSize: 14 } },
+                  m.name,
+                  m.fromSavedRecipe && h("span", { style: { fontSize: 10, color: "#2A7D4F", fontWeight: 600, marginLeft: 6, background: "#E8F4EC", padding: "2px 6px", borderRadius: 8 } }, "saved"),
+                ),
                 h("div", { className: "muted text-sm" },
                   (m.proteins || []).join(", "),
                   m.estimatedCost ? ` · ${fmt$(m.estimatedCost)}` : "",
@@ -248,18 +321,53 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, onAddToGr
         h("div", { key: type, style: { marginBottom: 14 } },
           h("div", { className: "grocery-section-label" }, `${MEAL_ICONS[type]} ${type}`),
           meals.map(m =>
-            h(Card, { key: m.id, className: "card-compact flex-between", style: { marginBottom: 8 } },
-              h("div", { style: { flex: 1 } },
-                h("div", { className: "font-bold", style: { fontSize: 15 } }, m.name),
-                h("div", { className: "muted text-sm" },
-                  (m.proteins || []).join(", "),
-                  m.estimatedCost ? ` · ${fmt$(m.estimatedCost)}` : "",
+            h(Card, { key: m.id, className: "card-compact", style: { marginBottom: 8, opacity: m.checked ? 0.6 : 1 } },
+              h("div", { className: "flex-between" },
+                h("div", { style: { flex: 1 } },
+                  h("div", {
+                    className: "font-bold",
+                    style: { fontSize: 15, textDecoration: m.checked ? "line-through" : "none", color: m.checked ? "#7A6A55" : "#1A1208" },
+                  }, m.name),
+                  h("div", { className: "muted text-sm" },
+                    (m.proteins || []).join(", "),
+                    m.estimatedCost ? ` · ${fmt$(m.estimatedCost)}` : "",
+                    m.checked && m.checkedAt && ` · Made ${new Date(m.checkedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`,
+                  ),
                 ),
+                h("button", {
+                  onClick: () => deleteMeal(m.id),
+                  style: { background: "none", border: "none", cursor: "pointer", color: "#C0392B", fontSize: 20, flexShrink: 0, marginLeft: 8 },
+                }, "×"),
               ),
-              h("button", {
-                onClick: () => deleteMeal(m.id),
-                style: { background: "none", border: "none", cursor: "pointer", color: "#C0392B", fontSize: 20, flexShrink: 0 },
-              }, "×"),
+
+              // Mark as Made button (only if not already checked)
+              !m.checked && h("div", { style: { marginTop: 8, display: "flex", gap: 8, alignItems: "center" } },
+                // Show date input inline when marking
+                markingId === m.id
+                  ? h(React.Fragment, null,
+                      h("input", {
+                        type: "date",
+                        value: markDate,
+                        onChange: e => setMarkDate(e.target.value),
+                        style: { flex: 1, padding: "6px 10px", borderRadius: 8, border: "1.5px solid #F0E6D3", fontSize: 13, outline: "none", background: "#FFF8F0", fontFamily: "'DM Sans',sans-serif" },
+                      }),
+                      h(Btn, {
+                        label: "Confirm",
+                        onClick: () => { onMarkAsMade(m, markDate); setMarkingId(null); },
+                        style: { fontSize: 12, padding: "6px 12px" },
+                      }),
+                      h(Btn, {
+                        label: "Cancel",
+                        variant: "ghost",
+                        onClick: () => setMarkingId(null),
+                        style: { fontSize: 12, padding: "6px 10px" },
+                      }),
+                    )
+                  : h("button", {
+                      onClick: () => { setMarkingId(m.id); setMarkDate(new Date().toISOString().split("T")[0]); },
+                      style: { background: "none", border: "1.5px solid #2A7D4F", borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 600, color: "#2A7D4F", cursor: "pointer", fontFamily: "'DM Sans',sans-serif" },
+                    }, "✓ Mark as Made"),
+              ),
             )
           ),
         )

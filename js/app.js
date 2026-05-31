@@ -25,46 +25,51 @@ function App() {
   const [myAppliances, setMyAppliances] = usePersist("hmp_appliances",   DEFAULT_APPLIANCES);
   const [settings,     setSettings]     = usePersist("hmp_settings",     window.APP.DEFAULT_SETTINGS);
   const [costLog,      setCostLog]      = usePersist("hmp_costlog",      []);
+  const [spending,     setSpending]     = usePersist("hmp_spending",     []);
+  const [cookHistory,  setCookHistory]  = usePersist("hmp_cookhistory",  []);
+
+  // ── In-memory search state (persists across navigation, cleared on app close) 
+  const [priceSearchResults, setPriceSearchResults] = useState(null);
+  const [priceListResults,   setPriceListResults]   = useState(null);
 
   // ── Cross-cutting hooks ──────────────────────────────────────────────────────
   const { addCost, total30 }     = useCostLog();
   const { banner, showBanner }   = useBanner();
   const { pinModal, requestPin } = usePinGuard(settings.pin);
 
+  // ── Manual sync function (set after startSync called) ─────────────────────
+  const [syncNow, setSyncNow] = useState(null);
+
   // ── Settings save ────────────────────────────────────────────────────────────
   const saveSettings = useCallback(s => setSettings(s), [setSettings]);
 
   // ── Firebase sync ─────────────────────────────────────────────────────────────
-  // Start sync when app loads. Restarts if householdId changes.
   useEffect(() => {
     const householdId = settings.householdId;
     if (!householdId || !window.APP.startSync) return;
 
-    const stop = window.APP.startSync(
-      householdId,
-      // Callbacks — Firebase overwrites local state
-      {
-        setGroceryList,
-        setRecipes,
-        setCostLog,
-      },
-      // Current local data — used for initial push if Firebase is empty
-      {
-        groceryList,
-        recipes,
-        costLog,
-      },
-    );
+    const syncFn = window.APP.startSync(householdId, {
+      setGroceryList,
+      setRecipes,
+      setCostLog,
+      setSpending,
+      setCookHistory,
+    });
 
-    return stop; // Cleans up interval on unmount or householdId change
-  }, [settings.householdId]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (syncFn) setSyncNow(() => syncFn);
+  }, [settings.householdId]); // eslint-disable-line
 
   // ── Push to Firebase after local changes ──────────────────────────────────────
-  // Debounced — waits 1.5s after last change before writing.
   useEffect(() => {
     if (!settings.householdId || !window.APP.schedulePush) return;
-    window.APP.schedulePush(settings.householdId, { groceryList, recipes, costLog });
-  }, [groceryList, recipes, costLog, settings.householdId]);
+    window.APP.schedulePush(settings.householdId, {
+      groceryList,
+      recipes,
+      costLog,
+      spending,
+      cookHistory,
+    });
+  }, [groceryList, recipes, costLog, spending, cookHistory, settings.householdId]);
 
   // ── Add recipe to meal plan ──────────────────────────────────────────────────
   const addToMealPlan = useCallback(recipe => {
@@ -77,6 +82,7 @@ function App() {
         course:        recipe.course,
         proteins:      recipe.proteins || [],
         estimatedCost: recipe.estimatedCost || 0,
+        checked:       false,
       },
     ]);
   }, [setMealPlan]);
@@ -111,16 +117,49 @@ function App() {
     setGroceryList(l => [...l, item]);
   }, [setGroceryList]);
 
+  // ── Mark meal as made (adds to cook history) ─────────────────────────────────
+  const markAsMade = useCallback((meal, date) => {
+    const entry = {
+      id:         uid(),
+      recipeName: meal.name,
+      recipeId:   meal.recipeId || null,
+      proteins:   meal.proteins || [],
+      mealType:   meal.mealType || "Dinner",
+      date:       date || new Date().toISOString().split("T")[0],
+      madeAt:     Date.now(),
+    };
+    setCookHistory(h => [...h, entry]);
+    // Mark checked in meal plan
+    setMealPlan(mp => mp.map(m => m.id === meal.id ? { ...m, checked: true, checkedAt: Date.now() } : m));
+    showBanner(`✓ ${meal.name} marked as made`, "success");
+  }, [setCookHistory, setMealPlan, showBanner]);
+
+  // ── Record grocery purchase ───────────────────────────────────────────────────
+  const recordPurchase = useCallback((amount, note) => {
+    const entry = {
+      id:        uid(),
+      amount:    +amount,
+      note:      note || "",
+      date:      new Date().toISOString().split("T")[0],
+      month:     new Date().toISOString().slice(0, 7), // "YYYY-MM"
+      createdAt: Date.now(),
+    };
+    setSpending(s => [...s, entry]);
+  }, [setSpending]);
+
   // ── Screen map ───────────────────────────────────────────────────────────────
   const screens = {
     home: h(HomeScreen, {
       settings,
       mealPlan,
       groceryList,
-      onNav:      setScreen,
-      onQuickAdd: quickAddGrocery,
+      onNav:             setScreen,
+      onQuickAdd:        quickAddGrocery,
       addCost,
       showBanner,
+      onSync:            syncNow,
+      priceSearchResults,
+      setPriceSearchResults,
     }),
 
     recipes: h(RecipesScreen, {
@@ -137,7 +176,9 @@ function App() {
       mealPlan,
       setMealPlan,
       recipes,
+      cookHistory,
       onAddToGrocery: addToGrocery,
+      onMarkAsMade:   markAsMade,
       requestPin,
       settings,
       saveSettings,
@@ -152,8 +193,12 @@ function App() {
       staples,
       setStaples,
       settings,
+      spending,
+      onRecordPurchase:  recordPurchase,
       addCost,
       showBanner,
+      priceListResults,
+      setPriceListResults,
     }),
 
     pantry: h(PantryScreen, {

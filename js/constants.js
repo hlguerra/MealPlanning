@@ -29,7 +29,7 @@ window.APP.COURSES = [
   "Snack",
 ];
 
-// ── Protein types (used for recipe tags & meal planner filter) ────────────────
+// ── Protein types ─────────────────────────────────────────────────────────────
 window.APP.PROTEINS = [
   "Beef",
   "Chicken",
@@ -71,56 +71,58 @@ window.APP.APPLIANCES = [
 ];
 
 // ── Estimated API cost per feature call (USD) ─────────────────────────────────
-// Based on claude-sonnet-4 pricing (~$3/MTok input, ~$15/MTok output).
-// Adjust if Anthropic changes pricing.
+// Based on real-world observed usage — recalibrated May 2026.
+// claude-sonnet-4-6 pricing: $3/MTok input, $15/MTok output.
+// These are conservative estimates — actual cost may be slightly lower.
 window.APP.COST_PER_CALL = {
-  mealPlan:    0.015,
-  recipeImport:0.008,
-  pantry:      0.005,
-  priceSearch: 0.010,
-  priceList:   0.015,
+  mealPlan:    0.05,   // ~15K input tokens with recipes + prompt
+  recipeImport:0.02,   // ~6K input tokens
+  pantry:      0.01,   // ~3K input tokens
+  priceSearch: 0.02,   // ~6K input tokens (no web search)
+  priceList:   0.03,   // ~10K input tokens (no web search)
 };
 
 // ── Default app settings ──────────────────────────────────────────────────────
 window.APP.DEFAULT_SETTINGS = {
   householdName:      "Haley's Meal Planning",
-  pin:                "4621",
+  pin:                "1234",
   people:             2,
   defaultMealTypes:   ["Dinner"],
-  defaultProteins:    [],           // blank = any protein
+  defaultProteins:    [],
   zipCode:            "44691",
   googleSheetsUrl:    "",
+  householdId:        "",
 };
 
-// ── Default appliances (pre-checked on first load) ────────────────────────────
+// ── Default appliances ────────────────────────────────────────────────────────
 window.APP.DEFAULT_APPLIANCES = [
   "Flat Top Grill",
   "Air Fryer",
   "Panini Press",
 ];
 
-// ── Seed recipes (shown on first launch) ─────────────────────────────────────
+// ── Seed recipes ──────────────────────────────────────────────────────────────
 window.APP.SEED_RECIPES = [
   {
-    id:           "r1",
-    name:         "Flat Top Smash Burgers",
-    course:       "Main",
-    proteins:     ["Beef"],
-    tags:         ["quick", "family favorite"],
-    appliances:   ["Flat Top Grill", "Air Fryer"],
-    servings:     2,
-    prepTime:     10,
-    cookTime:     15,
-    photo:        "",
-    estimatedCost:14.50,
-    nutrition:    { calories: 680, protein: 38, carbs: 42, fat: 36 },
+    id:            "r1",
+    name:          "Flat Top Smash Burgers",
+    course:        "Main",
+    proteins:      ["Beef"],
+    tags:          ["quick", "family favorite"],
+    appliances:    ["Flat Top Grill", "Air Fryer"],
+    servings:      2,
+    prepTime:      10,
+    cookTime:      15,
+    photo:         "",
+    estimatedCost: 14.50,
+    nutrition:     { calories: 680, protein: 38, carbs: 42, fat: 36 },
     ingredients: [
-      { id:"i1", name:"Ground beef (80/20)", amount:1,   unit:"lb",   section:"Meat & Seafood"    },
-      { id:"i2", name:"Burger buns",         amount:4,   unit:"ct",   section:"Bakery & Bread"    },
-      { id:"i3", name:"American cheese",     amount:4,   unit:"slices",section:"Dairy & Eggs"     },
-      { id:"i4", name:"Frozen fries",        amount:1,   unit:"bag",  section:"Frozen"            },
-      { id:"i5", name:"Lettuce",             amount:1,   unit:"head", section:"Produce"           },
-      { id:"i6", name:"Tomato",              amount:1,   unit:"ct",   section:"Produce"           },
+      { id:"i1", name:"Ground beef (80/20)", amount:1,   unit:"lb",     section:"Meat & Seafood"     },
+      { id:"i2", name:"Burger buns",         amount:4,   unit:"ct",     section:"Bakery & Bread"     },
+      { id:"i3", name:"American cheese",     amount:4,   unit:"slices", section:"Dairy & Eggs"       },
+      { id:"i4", name:"Frozen fries",        amount:1,   unit:"bag",    section:"Frozen"             },
+      { id:"i5", name:"Lettuce",             amount:1,   unit:"head",   section:"Produce"            },
+      { id:"i6", name:"Tomato",              amount:1,   unit:"ct",     section:"Produce"            },
     ],
     steps: [
       "Divide beef into 4 equal balls.",
@@ -132,24 +134,24 @@ window.APP.SEED_RECIPES = [
     notes: "Best with a thin smear of mayo on the bottom bun.",
   },
   {
-    id:           "r2",
-    name:         "Air Fryer Shrimp Tacos",
-    course:       "Main",
-    proteins:     ["Seafood"],
-    tags:         ["quick"],
-    appliances:   ["Air Fryer"],
-    servings:     2,
-    prepTime:     10,
-    cookTime:     12,
-    photo:        "",
-    estimatedCost:12.00,
-    nutrition:    { calories: 520, protein: 32, carbs: 48, fat: 14 },
+    id:            "r2",
+    name:          "Air Fryer Shrimp Tacos",
+    course:        "Main",
+    proteins:      ["Seafood"],
+    tags:          ["quick"],
+    appliances:    ["Air Fryer"],
+    servings:      2,
+    prepTime:      10,
+    cookTime:      12,
+    photo:         "",
+    estimatedCost: 12.00,
+    nutrition:     { calories: 520, protein: 32, carbs: 48, fat: 14 },
     ingredients: [
-      { id:"i7",  name:"Frozen shrimp (peeled)", amount:1,   unit:"lb",   section:"Frozen"          },
-      { id:"i8",  name:"Flour tortillas",        amount:8,   unit:"ct",   section:"Bakery & Bread"  },
-      { id:"i9",  name:"Shredded cabbage",       amount:2,   unit:"cups", section:"Produce"         },
-      { id:"i10", name:"Lime",                   amount:2,   unit:"ct",   section:"Produce"         },
-      { id:"i11", name:"Sour cream",             amount:0.5, unit:"cup",  section:"Dairy & Eggs"    },
+      { id:"i7",  name:"Frozen shrimp (peeled)", amount:1,   unit:"lb",   section:"Frozen"             },
+      { id:"i8",  name:"Flour tortillas",        amount:8,   unit:"ct",   section:"Bakery & Bread"     },
+      { id:"i9",  name:"Shredded cabbage",       amount:2,   unit:"cups", section:"Produce"            },
+      { id:"i10", name:"Lime",                   amount:2,   unit:"ct",   section:"Produce"            },
+      { id:"i11", name:"Sour cream",             amount:0.5, unit:"cup",  section:"Dairy & Eggs"       },
       { id:"i12", name:"Taco seasoning",         amount:2,   unit:"tbsp", section:"Pantry & Dry Goods" },
     ],
     steps: [
@@ -164,14 +166,23 @@ window.APP.SEED_RECIPES = [
 
 // ── Seed staples ──────────────────────────────────────────────────────────────
 window.APP.SEED_STAPLES = [
-  { id:"s1", name:"Olive oil",    section:"Pantry & Dry Goods" },
-  { id:"s2", name:"Butter",       section:"Dairy & Eggs"       },
-  { id:"s3", name:"Eggs (dozen)", section:"Dairy & Eggs"       },
-  { id:"s4", name:"Whole milk",   section:"Dairy & Eggs"       },
-  { id:"s5", name:"Salt & pepper",section:"Pantry & Dry Goods" },
+  { id:"s1", name:"Olive oil",     section:"Pantry & Dry Goods" },
+  { id:"s2", name:"Butter",        section:"Dairy & Eggs"       },
+  { id:"s3", name:"Eggs (dozen)",  section:"Dairy & Eggs"       },
+  { id:"s4", name:"Whole milk",    section:"Dairy & Eggs"       },
+  { id:"s5", name:"Salt & pepper", section:"Pantry & Dry Goods" },
+];
+
+// ── Weekly flyer links (Wooster, OH) ──────────────────────────────────────────
+window.APP.FLYER_LINKS = [
+  { name: "Walmart",   url: "https://www.walmart.com/store/1812-wooster-oh/weekly-ads" },
+  { name: "Meijer",    url: "https://www.meijer.com/weeklyad" },
+  { name: "Aldi",      url: "https://www.aldi.us/en/weekly-specials" },
+  { name: "Marc's",    url: "https://www.marcs.com/weeklyad" },
+  { name: "Buehler's", url: "https://buehlers.mycircular.info/weekly-ad" },
 ];
 
 // ── Anthropic API ─────────────────────────────────────────────────────────────
-window.APP.API_URL   = "https://api.anthropic.com/v1/messages";
-window.APP.API_MODEL = "claude-sonnet-4-6";
+window.APP.API_URL       = "https://us-central1-meal-planner-5df26.cloudfunctions.net/anthropicProxy";
+window.APP.API_MODEL     = "claude-sonnet-4-6";
 window.APP.API_MAX_TOKENS = 1500;

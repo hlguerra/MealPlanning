@@ -254,6 +254,10 @@ function RecipeDetail({ recipe, onBack, onEdit, onDelete, onAddToMealPlan, onAdd
     recipe.notes && h(Card, { style: { marginBottom: 16, background: "#FDE8D8" } },
       h("div", { className: "font-bold text-sm", style: { color: "#A0420A", marginBottom: 4 } }, "📝 Notes"),
       h("div", { style: { fontSize: 14 } }, recipe.notes),
+      recipe.sourceUrl && h("div", { style: { marginTop: 8, fontSize: 12, color: "#7A6A55" } },
+        "📎 Source: ",
+        h("a", { href: recipe.sourceUrl, target: "_blank", rel: "noopener noreferrer", style: { color: "#D4622A" } }, recipe.sourceLabel || recipe.sourceUrl),
+      ),
     ),
 
     recipe.nutrition?.calories && h(Card, { style: { marginBottom: 16 } },

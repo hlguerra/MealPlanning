@@ -6,7 +6,7 @@ const { uid, fmt$, callClaude, extractText, parseJSON, toggleInArray, plural } =
 const { MEAL_TYPES, MEAL_ICONS, PROTEINS } = window.APP;
 
 // ── MealPlanScreen ────────────────────────────────────────────────────────────
-window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, cookHistory, onAddToGrocery, onMarkAsMade, requestPin, settings, saveSettings, myAppliances, addCost, showBanner }) {
+window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipes, cookHistory, onAddToGrocery, onMarkAsMade, requestPin, settings, saveSettings, myAppliances, addCost, showBanner }) {
 
   const [generating, setGenerating] = useState(false);
   const [genError,   setGenError]   = useState("");
@@ -15,6 +15,7 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, cookHisto
   const [markingId,  setMarkingId]  = useState(null); // id of meal being marked as made
   const [markDate,   setMarkDate]   = useState(new Date().toISOString().split("T")[0]);
   const [clearConfirm, setClearConfirm] = useState(false);
+  const [viewingRecipe, setViewingRecipe] = useState(null); // { meal, recipe, loading, error }
 
   // Generator filters
   const [daysStr,   setDaysStr]   = useState("7");
@@ -29,7 +30,6 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, cookHisto
   const handlePeopleBlur = () => {
     const n = Math.max(1, parseInt(peopleStr) || 1);
     setPeopleStr(String(n));
-    saveSettings({ ...settings, people: n });
   };
 
   const toggleMealType = t => setMealTypes(mt => toggleInArray(mt, t));
@@ -44,13 +44,18 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, cookHisto
   );
 
   // Saved recipes not made recently — prioritize these in generation
+  // Map meal types to relevant recipe courses
+  const relevantCourses = new Set(
+    mealTypes.map(t => t === "Breakfast" ? "Breakfast" : t === "Lunch" ? ["Main", "Side", "Appetizer"] : ["Main", "Side"]).flat()
+  );
+
   const savedRecipesNotRecent = recipes
-    .filter(r => !recentlyMade.has(r.name))
+    .filter(r => !recentlyMade.has(r.name) && relevantCourses.has(r.course))
     .slice(0, 6)
     .map(r => r.name);
 
   const savedRecipesRecent = recipes
-    .filter(r => recentlyMade.has(r.name))
+    .filter(r => recentlyMade.has(r.name) && relevantCourses.has(r.course))
     .slice(0, 3)
     .map(r => r.name);
 
@@ -87,6 +92,8 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, cookHisto
       parts.push(`Do NOT suggest any of these (already selected): ${excludeNames.join(", ")}.`);
     }
 
+    parts.push(`Be creative and varied — avoid defaulting to the same meals every time. Mix cuisines, cooking methods, and ingredients.`);
+    parts.push(`Be creative and varied — avoid defaulting to the same meals every time. Mix cuisines, cooking methods, and ingredients.`);
     parts.push(`Return ONLY a JSON array, no markdown: [{"name":"","mealType":"Dinner","proteins":["Chicken"],"estimatedCost":12,"notes":"","fromSavedRecipe":false}]`);
 
     return parts.join(" ");
@@ -143,6 +150,46 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, cookHisto
     setProposed([]);
     setLocked({});
     showBanner("✓ Meal plan saved!", "success");
+  };
+
+  const generateRecipeForMeal = async (meal) => {
+    // Check if a saved recipe matches first
+    const saved = recipes.find(r => r.name.toLowerCase() === meal.name.toLowerCase());
+    if (saved) { setViewingRecipe({ meal, recipe: saved, loading: false, error: "" }); return; }
+
+    setViewingRecipe({ meal, recipe: null, loading: true, error: "" });
+    try {
+      const data = await callClaude({
+        maxTokens: 1000,
+        messages: [{
+          role: "user",
+          content: `Generate a full recipe for "${meal.name}"${meal.proteins?.length ? ` using ${meal.proteins.join(", ")}` : ""}. Return ONLY valid JSON, no markdown:
+{"name":"","course":"Main","proteins":[],"tags":[],"appliances":[],"servings":4,"prepTime":0,"cookTime":0,"ingredients":[{"id":"i1","name":"","amount":1,"unit":"","section":"Other"}],"steps":[],"notes":"","estimatedCost":0}`,
+        }],
+      });
+      const text   = extractText(data.content);
+      const parsed = parseJSON(text);
+      parsed.ingredients = (parsed.ingredients || []).map(ing => ({
+        ...ing,
+        section: ing.section && ing.section !== "Other" ? ing.section : categorize(ing.name),
+      }));
+      const recipe = { ...parsed, id: uid(), photo: "", nutrition: {}, sourceLabel: "AI Generated" };
+      setViewingRecipe({ meal, recipe, loading: false, error: "" });
+      addCost("recipeGen");
+    } catch {
+      setViewingRecipe({ meal, recipe: null, loading: false, error: "Could not generate recipe. Try again." });
+    }
+  };
+
+  const saveGeneratedRecipe = () => {
+    if (!viewingRecipe?.recipe) return;
+    const exists = recipes.find(r => r.name.toLowerCase() === viewingRecipe.recipe.name.toLowerCase());
+    if (exists) { showBanner("Recipe already saved.", "success"); return; }
+    const toSave = { ...viewingRecipe.recipe, id: uid() };
+    // setRecipes is not available here — handled via prop below
+    setRecipes(rs => [...rs, toSave]);
+    showBanner("✓ Recipe saved!", "success");
+    setViewingRecipe(v => ({ ...v, saved: true }));
   };
 
   const toggleLock   = id => setLocked(l => ({ ...l, [id]: !l[id] }));
@@ -306,6 +353,159 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, cookHisto
       ),
     ),
 
+    // ── Recipe viewer modal ───────────────────────────────────────────────────
+    viewingRecipe && h("div", {
+      style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 200, display: "flex", alignItems: "flex-end" },
+      onClick: () => setViewingRecipe(null),
+    },
+      h("div", {
+        style: { background: "#FFF8F0", borderRadius: "20px 20px 0 0", width: "100%", maxHeight: "85vh", overflowY: "auto", padding: "20px 16px 32px" },
+        onClick: e => e.stopPropagation(),
+      },
+        h("div", { className: "flex-between", style: { marginBottom: 16 } },
+          h("div", { className: "font-bold font-serif", style: { fontSize: 18 } }, viewingRecipe.meal.name),
+          h("button", { onClick: () => setViewingRecipe(null), style: { background: "none", border: "none", fontSize: 24, cursor: "pointer", color: "#7A6A55" } }, "×"),
+        ),
+        viewingRecipe.loading && h("div", { className: "muted text-sm", style: { textAlign: "center", padding: 24 } }, "✨ Generating recipe…"),
+        viewingRecipe.error && h("div", { className: "warn text-sm" }, viewingRecipe.error),
+        viewingRecipe.recipe && h(React.Fragment, null,
+          h("div", { className: "flex wrap gap-6", style: { marginBottom: 12 } },
+            viewingRecipe.recipe.sourceLabel && h("span", { style: { fontSize: 11, fontWeight: 600, color: viewingRecipe.recipe.sourceLabel === "AI Generated" ? "#D4622A" : "#2A6A9E", background: viewingRecipe.recipe.sourceLabel === "AI Generated" ? "#FDE8D8" : "#E8EEF8", padding: "2px 8px", borderRadius: 8 } },
+              viewingRecipe.recipe.sourceLabel === "AI Generated" ? "✨ AI Generated" : `📎 ${viewingRecipe.recipe.sourceLabel}`
+            ),
+          ),
+          h("div", { className: "font-bold font-serif mb-8", style: { fontSize: 14 } }, "Ingredients"),
+          h(Card, { style: { marginBottom: 12 } },
+            (viewingRecipe.recipe.ingredients || []).map(ing =>
+              h("div", { key: ing.id, className: "flex-between divider", style: { padding: "5px 0", fontSize: 13 } },
+                h("span", null, ing.name),
+                h("span", { className: "muted" }, `${ing.amount} ${ing.unit}`),
+              )
+            ),
+          ),
+          h("div", { className: "font-bold font-serif mb-8", style: { fontSize: 14 } }, "Instructions"),
+          h(Card, { style: { marginBottom: 12 } },
+            (viewingRecipe.recipe.steps || []).map((s, i) =>
+              h("div", { key: i, className: "flex gap-12", style: { marginBottom: 10 } },
+                h("div", { className: "step-num" }, i + 1),
+                h("div", { style: { fontSize: 13, lineHeight: 1.6 } }, s),
+              )
+            ),
+          ),
+          viewingRecipe.recipe.notes && h("div", { className: "muted text-sm italic", style: { marginBottom: 12 } }, `📝 ${viewingRecipe.recipe.notes}`),
+          !viewingRecipe.saved && viewingRecipe.recipe.sourceLabel === "AI Generated" && h(Btn, {
+            label: "📥 Save to Recipes",
+            onClick: saveGeneratedRecipe,
+            className: "btn-full",
+            style: { marginBottom: 8 },
+          }),
+          viewingRecipe.saved && h("div", { style: { textAlign: "center", fontSize: 13, color: "#2A7D4F", fontWeight: 600, marginBottom: 8 } }, "📖 Saved to recipes"),
+        ),
+      ),
+    ),
+
+    // ── Recipe viewer modal ───────────────────────────────────────────────────
+    viewingRecipe && h("div", {
+      style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 200, display: "flex", alignItems: "flex-end" },
+      onClick: () => setViewingRecipe(null),
+    },
+      h("div", {
+        style: { background: "#FFF8F0", borderRadius: "20px 20px 0 0", width: "100%", maxHeight: "85vh", overflowY: "auto", padding: "20px 16px 32px" },
+        onClick: e => e.stopPropagation(),
+      },
+        h("div", { className: "flex-between", style: { marginBottom: 16 } },
+          h("div", { className: "font-bold font-serif", style: { fontSize: 18 } }, viewingRecipe.meal.name),
+          h("button", { onClick: () => setViewingRecipe(null), style: { background: "none", border: "none", fontSize: 24, cursor: "pointer", color: "#7A6A55" } }, "×"),
+        ),
+        viewingRecipe.loading && h("div", { className: "muted text-sm", style: { textAlign: "center", padding: 24 } }, "✨ Generating recipe…"),
+        viewingRecipe.error && h("div", { className: "warn text-sm" }, viewingRecipe.error),
+        viewingRecipe.recipe && h(React.Fragment, null,
+          h("div", { className: "flex wrap gap-6", style: { marginBottom: 12 } },
+            viewingRecipe.recipe.sourceLabel && h("span", { style: { fontSize: 11, fontWeight: 600, color: viewingRecipe.recipe.sourceLabel === "AI Generated" ? "#D4622A" : "#2A6A9E", background: viewingRecipe.recipe.sourceLabel === "AI Generated" ? "#FDE8D8" : "#E8EEF8", padding: "2px 8px", borderRadius: 8 } },
+              viewingRecipe.recipe.sourceLabel === "AI Generated" ? "✨ AI Generated" : `📎 ${viewingRecipe.recipe.sourceLabel}`
+            ),
+          ),
+          h("div", { className: "font-bold font-serif mb-8", style: { fontSize: 14 } }, "Ingredients"),
+          h(Card, { style: { marginBottom: 12 } },
+            (viewingRecipe.recipe.ingredients || []).map(ing =>
+              h("div", { key: ing.id, className: "flex-between divider", style: { padding: "5px 0", fontSize: 13 } },
+                h("span", null, ing.name),
+                h("span", { className: "muted" }, `${ing.amount} ${ing.unit}`),
+              )
+            ),
+          ),
+          h("div", { className: "font-bold font-serif mb-8", style: { fontSize: 14 } }, "Instructions"),
+          h(Card, { style: { marginBottom: 12 } },
+            (viewingRecipe.recipe.steps || []).map((s, i) =>
+              h("div", { key: i, className: "flex gap-12", style: { marginBottom: 10 } },
+                h("div", { className: "step-num" }, i + 1),
+                h("div", { style: { fontSize: 13, lineHeight: 1.6 } }, s),
+              )
+            ),
+          ),
+          viewingRecipe.recipe.notes && h("div", { className: "muted text-sm italic", style: { marginBottom: 12 } }, `📝 ${viewingRecipe.recipe.notes}`),
+          !viewingRecipe.saved && viewingRecipe.recipe.sourceLabel === "AI Generated" && h(Btn, {
+            label: "📥 Save to Recipes",
+            onClick: saveGeneratedRecipe,
+            className: "btn-full",
+            style: { marginBottom: 8 },
+          }),
+          viewingRecipe.saved && h("div", { style: { textAlign: "center", fontSize: 13, color: "#2A7D4F", fontWeight: 600, marginBottom: 8 } }, "📖 Saved to recipes"),
+        ),
+      ),
+    ),
+
+    // ── Recipe viewer modal ───────────────────────────────────────────────────
+    viewingRecipe && h("div", {
+      style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 200, display: "flex", alignItems: "flex-end" },
+      onClick: () => setViewingRecipe(null),
+    },
+      h("div", {
+        style: { background: "#FFF8F0", borderRadius: "20px 20px 0 0", width: "100%", maxHeight: "85vh", overflowY: "auto", padding: "20px 16px 32px" },
+        onClick: e => e.stopPropagation(),
+      },
+        h("div", { className: "flex-between", style: { marginBottom: 16 } },
+          h("div", { className: "font-bold font-serif", style: { fontSize: 18 } }, viewingRecipe.meal.name),
+          h("button", { onClick: () => setViewingRecipe(null), style: { background: "none", border: "none", fontSize: 24, cursor: "pointer", color: "#7A6A55" } }, "×"),
+        ),
+        viewingRecipe.loading && h("div", { className: "muted text-sm", style: { textAlign: "center", padding: 24 } }, "✨ Generating recipe…"),
+        viewingRecipe.error && h("div", { className: "warn text-sm" }, viewingRecipe.error),
+        viewingRecipe.recipe && h(React.Fragment, null,
+          h("div", { className: "flex wrap gap-6", style: { marginBottom: 12 } },
+            viewingRecipe.recipe.sourceLabel && h("span", { style: { fontSize: 11, fontWeight: 600, color: viewingRecipe.recipe.sourceLabel === "AI Generated" ? "#D4622A" : "#2A6A9E", background: viewingRecipe.recipe.sourceLabel === "AI Generated" ? "#FDE8D8" : "#E8EEF8", padding: "2px 8px", borderRadius: 8 } },
+              viewingRecipe.recipe.sourceLabel === "AI Generated" ? "✨ AI Generated" : `📎 ${viewingRecipe.recipe.sourceLabel}`
+            ),
+          ),
+          h("div", { className: "font-bold font-serif mb-8", style: { fontSize: 14 } }, "Ingredients"),
+          h(Card, { style: { marginBottom: 12 } },
+            (viewingRecipe.recipe.ingredients || []).map(ing =>
+              h("div", { key: ing.id, className: "flex-between divider", style: { padding: "5px 0", fontSize: 13 } },
+                h("span", null, ing.name),
+                h("span", { className: "muted" }, `${ing.amount} ${ing.unit}`),
+              )
+            ),
+          ),
+          h("div", { className: "font-bold font-serif mb-8", style: { fontSize: 14 } }, "Instructions"),
+          h(Card, { style: { marginBottom: 12 } },
+            (viewingRecipe.recipe.steps || []).map((s, i) =>
+              h("div", { key: i, className: "flex gap-12", style: { marginBottom: 10 } },
+                h("div", { className: "step-num" }, i + 1),
+                h("div", { style: { fontSize: 13, lineHeight: 1.6 } }, s),
+              )
+            ),
+          ),
+          viewingRecipe.recipe.notes && h("div", { className: "muted text-sm italic", style: { marginBottom: 12 } }, `📝 ${viewingRecipe.recipe.notes}`),
+          !viewingRecipe.saved && viewingRecipe.recipe.sourceLabel === "AI Generated" && h(Btn, {
+            label: "📥 Save to Recipes",
+            onClick: saveGeneratedRecipe,
+            className: "btn-full",
+            style: { marginBottom: 8 },
+          }),
+          viewingRecipe.saved && h("div", { style: { textAlign: "center", fontSize: 13, color: "#2A7D4F", fontWeight: 600, marginBottom: 8 } }, "📖 Saved to recipes"),
+        ),
+      ),
+    ),
+
     // ── Empty state ───────────────────────────────────────────────────────────
     mealPlan.length === 0 && proposed.length === 0 && h(EmptyState, {
       icon: "🗓",
@@ -326,8 +526,9 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, cookHisto
                 h("div", { style: { flex: 1 } },
                   h("div", {
                     className: "font-bold",
-                    style: { fontSize: 15, textDecoration: m.checked ? "line-through" : "none", color: m.checked ? "#7A6A55" : "#1A1208" },
-                  }, m.name),
+                    style: { fontSize: 15, textDecoration: m.checked ? "line-through" : "none", color: m.checked ? "#7A6A55" : "#D4622A", cursor: "pointer" },
+                    onClick: () => generateRecipeForMeal(m),
+                  }, m.name, h("span", { style: { fontSize: 11, color: "#7A6A55", fontWeight: 400, marginLeft: 6 } }, "view recipe →")),
                   h("div", { className: "muted text-sm" },
                     (m.proteins || []).join(", "),
                     m.estimatedCost ? ` · ${fmt$(m.estimatedCost)}` : "",

@@ -80,6 +80,7 @@ window.APP.COST_PER_CALL = {
   pantry:      0.01,   // ~3K input tokens
   priceSearch: 0.02,   // ~6K input tokens (no web search)
   priceList:   0.03,   // ~10K input tokens (no web search)
+  recipeGen:   0.02,   // ~6K input tokens (generate recipe from meal name)
 };
 
 // ── Default app settings ──────────────────────────────────────────────────────

@@ -176,6 +176,7 @@ function App() {
       mealPlan,
       setMealPlan,
       recipes,
+      setRecipes,
       cookHistory,
       onAddToGrocery: addToGrocery,
       onMarkAsMade:   markAsMade,

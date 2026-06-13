@@ -26,19 +26,20 @@ function setStatus(patch) {
 async function pullFromFirebase(householdId, callbacks) {
   const {
     setGroceryList, setRecipes, setCostLog,
-    setSpending, setCookHistory,
+    setSpending, setCookHistory, setMealPlan,
   } = callbacks;
   const fb = window.APP.firebase;
 
   setStatus({ syncing: true, error: null });
 
   try {
-    const [grocery, recipes, costlog, spending, cookhistory] = await Promise.all([
+    const [grocery, recipes, costlog, spending, cookhistory, mealplan] = await Promise.all([
       fb.readGrocery(householdId),
       fb.readRecipes(householdId),
       fb.readCostLog(householdId),
       fb.readSpending(householdId),
       fb.readCookHistory(householdId),
+      fb.readMealPlan(householdId),
     ]);
 
     setGroceryList(grocery);
@@ -46,6 +47,7 @@ async function pullFromFirebase(householdId, callbacks) {
     setCostLog(costlog);
     setSpending(spending);
     setCookHistory(cookhistory);
+    if (setMealPlan) setMealPlan(mealplan);
 
     setStatus({ syncing: false, lastSynced: new Date(), error: null });
   } catch (e) {
@@ -56,7 +58,7 @@ async function pullFromFirebase(householdId, callbacks) {
 
 // ── Push to Firebase ──────────────────────────────────────────────────────────
 async function pushToFirebase(householdId, data) {
-  const { groceryList, recipes, costLog, spending, cookHistory } = data;
+  const { groceryList, recipes, costLog, spending, cookHistory, mealPlan } = data;
   const fb = window.APP.firebase;
 
   setStatus({ syncing: true, error: null });
@@ -68,6 +70,7 @@ async function pushToFirebase(householdId, data) {
       fb.writeCostLog(householdId, costLog),
       fb.writeSpending(householdId, spending),
       fb.writeCookHistory(householdId, cookHistory),
+      fb.writeMealPlan(householdId, mealPlan || []),
     ]);
     setStatus({ syncing: false, lastSynced: new Date(), error: null });
   } catch (e) {

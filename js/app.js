@@ -54,6 +54,7 @@ function App() {
       setCostLog,
       setSpending,
       setCookHistory,
+      setMealPlan,
     });
 
     if (syncFn) setSyncNow(() => syncFn);
@@ -68,8 +69,9 @@ function App() {
       costLog,
       spending,
       cookHistory,
+      mealPlan,
     });
-  }, [groceryList, recipes, costLog, spending, cookHistory, settings.householdId]);
+  }, [groceryList, recipes, costLog, spending, cookHistory, mealPlan, settings.householdId]);
 
   // ── Add recipe to meal plan ──────────────────────────────────────────────────
   const addToMealPlan = useCallback(recipe => {

@@ -68,6 +68,8 @@
       writeSpending:    async (id,entries) => setDoc(doc(db,"households",id,"spending","history"),{entries,updatedAt:Date.now()}),
       readCookHistory:  async id => { const s = await getDoc(doc(db,"households",id,"cookhistory","log")); return s.exists()?(s.data().entries||[]):[];},
       writeCookHistory: async (id,entries) => setDoc(doc(db,"households",id,"cookhistory","log"),{entries,updatedAt:Date.now()}),
+      readMealPlan:     async id => { const s = await getDoc(doc(db,"households",id,"mealplan","current")); return s.exists()?(s.data().items||[]):[];},
+      writeMealPlan:    async (id,items) => setDoc(doc(db,"households",id,"mealplan","current"),{items,updatedAt:Date.now()}),
     };
     window.APP.firebaseReady = true;
   </script>

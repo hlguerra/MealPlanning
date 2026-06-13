@@ -131,7 +131,7 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
     const lockedMeals  = proposed.filter(p => locked[p.id]);
     const need         = proposed.filter(p => !locked[p.id]).length;
     // Exclude ALL current proposed meals (locked + unlocked) so we get fresh suggestions
-    const excludeNames = proposed.map(p => p.name);
+    const excludeNames = [...new Set([...proposed.map(p => p.name), ...mealPlan.map(m => m.name)])];
 
     try {
       const data     = await callClaude({ maxTokens: 600, messages: [{ role: "user", content: buildPrompt(need, excludeNames) }] });

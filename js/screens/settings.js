@@ -115,7 +115,10 @@ window.APP.SettingsScreen = function({ settings, saveSettings, myAppliances, set
     h(Card, { style: { marginBottom: 16 } },
       h("div", { className: "font-bold font-serif mb-12", style: { fontSize: 15 } }, "🏠 Household"),
       h(Input, { label: "Household / Family Name", value: form.householdName, onChange: v => upd("householdName", v), placeholder: "e.g. Haley's Meal Planning" }),
-      h(Input, { label: "Default # of People", type: "number", value: form.people, onChange: v => upd("people", Math.max(1, +v)) }),
+      h("div", { className: "flex gap-10" },
+        h("div", { style: { flex: 1 } }, h(Input, { label: "Default # of People", type: "number", value: form.people, onChange: v => upd("people", Math.max(1, +v)) })),
+        h("div", { style: { flex: 1 } }, h(Input, { label: "Default # of Days", type: "number", value: form.days || 7, onChange: v => upd("days", Math.max(1, Math.min(14, +v))) })),
+      ),
       h(Input, { label: "Default Zip Code (price comparisons)", value: form.zipCode || "", onChange: v => upd("zipCode", v), placeholder: "e.g. 44691" }),
     ),
 

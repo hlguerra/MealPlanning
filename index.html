@@ -70,6 +70,14 @@
       writeCookHistory: async (id,entries) => setDoc(doc(db,"households",id,"cookhistory","log"),{entries,updatedAt:Date.now()}),
       readMealPlan:     async id => { const s = await getDoc(doc(db,"households",id,"mealplan","current")); return s.exists()?(s.data().items||[]):[];},
       writeMealPlan:    async (id,items) => setDoc(doc(db,"households",id,"mealplan","current"),{items,updatedAt:Date.now()}),
+      readPantry:       async id => { const s = await getDoc(doc(db,"households",id,"pantry","items")); return s.exists()?(s.data().items||[]):[];},
+      writePantry:      async (id,items) => setDoc(doc(db,"households",id,"pantry","items"),{items,updatedAt:Date.now()}),
+      readStaples:      async id => { const s = await getDoc(doc(db,"households",id,"staples","items")); return s.exists()?(s.data().items||[]):[];},
+      writeStaples:     async (id,items) => setDoc(doc(db,"households",id,"staples","items"),{items,updatedAt:Date.now()}),
+      readAppliances:   async id => { const s = await getDoc(doc(db,"households",id,"appliances","list")); return s.exists()?(s.data().items||null):null;},
+      writeAppliances:  async (id,items) => setDoc(doc(db,"households",id,"appliances","list"),{items,updatedAt:Date.now()}),
+      readSettings:     async id => { const s = await getDoc(doc(db,"households",id,"settings","prefs")); return s.exists()?(s.data().settings||null):null;},
+      writeSettings:    async (id,settings) => setDoc(doc(db,"households",id,"settings","prefs"),{settings,updatedAt:Date.now()}),
     };
     window.APP.firebaseReady = true;
   </script>

@@ -90,6 +90,7 @@ window.APP.DEFAULT_SETTINGS = {
   people:             2,
   defaultMealTypes:   ["Dinner"],
   defaultProteins:    [],
+  days:               7,
   zipCode:            "44691",
   googleSheetsUrl:    "",
   householdId:        "",

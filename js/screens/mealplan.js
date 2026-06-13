@@ -18,7 +18,7 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
   const [viewingRecipe, setViewingRecipe] = useState(null); // { meal, recipe, loading, error }
 
   // Generator filters
-  const [daysStr,   setDaysStr]   = useState("7");
+  const [daysStr,   setDaysStr]   = useState(String(settings.days || 7));
   const [peopleStr, setPeopleStr] = useState(String(settings.people || 2));
   const [mealTypes, setMealTypes] = useState(settings.defaultMealTypes?.length ? settings.defaultMealTypes : ["Dinner"]);
   const [proteins,  setProteins]  = useState(settings.defaultProteins || []);
@@ -193,8 +193,8 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
   };
 
   const toggleLock   = id => setLocked(l => ({ ...l, [id]: !l[id] }));
-  const deleteMeal   = id => requestPin(() => setMealPlan(mp => mp.filter(m => m.id !== id)));
-  const clearAll     = ()  => requestPin(() => { setMealPlan([]); setClearConfirm(false); showBanner("Meal plan cleared.", "success"); });
+  const deleteMeal   = id => setMealPlan(mp => mp.filter(m => m.id !== id));
+  const clearAll     = ()  => { setMealPlan([]); setClearConfirm(false); showBanner("Meal plan cleared.", "success"); };
 
   const addAllToGrocery = () => {
     mealPlan.forEach(m => {
@@ -225,6 +225,7 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
     // Clear all confirm
     clearConfirm && h(Card, { style: { marginBottom: 16, border: "2px solid #C0392B" } },
       h("div", { className: "font-bold mb-8", style: { fontSize: 14 } }, "Clear the entire meal plan?"),
+      h("div", { className: "muted text-sm", style: { marginBottom: 8 } }, "⚠️ This will clear the meal plan for everyone in your household."),
       h("div", { className: "flex gap-8" },
         h(Btn, { label: "Cancel", variant: "ghost", onClick: () => setClearConfirm(false), style: { flex: 1 } }),
         h(Btn, { label: "Yes, Clear All", variant: "danger", onClick: clearAll, style: { flex: 1 } }),

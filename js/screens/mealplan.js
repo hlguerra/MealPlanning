@@ -92,8 +92,8 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
       parts.push(`Do NOT suggest any of these (already selected): ${excludeNames.join(", ")}.`);
     }
 
-    parts.push(`Be creative and varied — avoid defaulting to the same meals every time. Mix cuisines, cooking methods, and ingredients.`);
-    parts.push(`Be creative and varied — avoid defaulting to the same meals every time. Mix cuisines, cooking methods, and ingredients.`);
+    parts.push(`Vary proteins across meals — do not suggest more than 2 meals with the same protein unless explicitly requested. Mix cuisines and cooking methods (e.g. don't suggest all grilled or all stovetop meals).`);
+    parts.push(`Randomness seed: ${Math.random().toString(36).slice(2, 8)}. Use this to vary your suggestions from previous responses.`);
     parts.push(`Return ONLY a JSON array, no markdown: [{"name":"","mealType":"Dinner","proteins":["Chicken"],"estimatedCost":12,"notes":"","fromSavedRecipe":false}]`);
 
     return parts.join(" ");

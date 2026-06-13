@@ -160,7 +160,7 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
     setViewingRecipe({ meal, recipe: null, loading: true, error: "" });
     try {
       const data = await callClaude({
-        maxTokens: 1000,
+        maxTokens: 2000,
         messages: [{
           role: "user",
           content: `Generate a full recipe for "${meal.name}"${meal.proteins?.length ? ` using ${meal.proteins.join(", ")}` : ""}. Return ONLY valid JSON, no markdown:

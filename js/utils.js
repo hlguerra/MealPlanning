@@ -78,7 +78,7 @@ window.APP.utils = {
   // ── API call wrapper ─────────────────────────────────────────────────────────
   // Centralised fetch to the Anthropic messages endpoint.
   // Returns parsed JSON or throws.
-  async callClaude({ messages, maxTokens = 1000, tools }) {
+  async callClaude({ messages, maxTokens = 1500, tools }) {
     const body = {
       model:      window.APP.API_MODEL,
       max_tokens: maxTokens,

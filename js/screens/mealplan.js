@@ -16,6 +16,7 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
   const [markDate,   setMarkDate]   = useState(new Date().toISOString().split("T")[0]);
   const [clearConfirm, setClearConfirm] = useState(false);
   const [viewingRecipe, setViewingRecipe] = useState(null); // { meal, recipe, loading, error }
+  const recipeCache = React.useRef({});
 
   // Generator filters
   const [daysStr,   setDaysStr]   = useState(String(settings.days || 7));
@@ -157,6 +158,10 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
     const saved = recipes.find(r => r.name.toLowerCase() === meal.name.toLowerCase());
     if (saved) { setViewingRecipe({ meal, recipe: saved, loading: false, error: "" }); return; }
 
+    // Check in-memory cache
+    const cached = recipeCache.current[meal.name];
+    if (cached) { setViewingRecipe({ meal, recipe: cached, loading: false, error: "" }); return; }
+
     setViewingRecipe({ meal, recipe: null, loading: true, error: "" });
     try {
       const data = await callClaude({
@@ -174,6 +179,7 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
         section: ing.section && ing.section !== "Other" ? ing.section : categorize(ing.name),
       }));
       const recipe = { ...parsed, id: uid(), photo: "", nutrition: {}, sourceLabel: "AI Generated" };
+      recipeCache.current[meal.name] = recipe;
       setViewingRecipe({ meal, recipe, loading: false, error: "" });
       addCost("recipeGen");
     } catch {

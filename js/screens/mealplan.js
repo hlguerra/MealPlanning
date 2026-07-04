@@ -10,7 +10,8 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
 
   const [generating, setGenerating] = useState(false);
   const [genError,   setGenError]   = useState("");
-  const [proposed,   setProposed]   = useState([]);
+  const [proposed,   setProposed]   = usePersist("hmp_proposed", []);
+  const [proposedAt, setProposedAt] = usePersist("hmp_proposed_at", null);
   const [locked,     setLocked]     = useState({});
   const [markingId,  setMarkingId]  = useState(null); // id of meal being marked as made
   const [markDate,   setMarkDate]   = useState(new Date().toISOString().split("T")[0]);
@@ -80,13 +81,7 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
 
     if (myAppliances.length) parts.push(`Prefer appliances: ${myAppliances.slice(0, 4).join(", ")}.`);
 
-    // Prioritize saved recipes not made recently
-    if (savedRecipesNotRecent.length) {
-      parts.push(`PRIORITIZE these saved recipes first (not made recently): ${savedRecipesNotRecent.join(", ")}.`);
-    }
-    if (savedRecipesRecent.length) {
-      parts.push(`These saved recipes were made recently, avoid repeating: ${savedRecipesRecent.join(", ")}.`);
-    }
+    // (saved recipe prioritization removed — using variety/randomness instead)
 
     // Exclude already proposed/locked meals
     if (excludeNames.length) {
@@ -120,6 +115,7 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
       const text     = extractText(data.content);
       const newMeals = parseJSON(text).map(m => ({ ...m, id: uid() }));
       setProposed([...lockedMeals, ...newMeals]);
+      setProposedAt(Date.now());
       addCost("mealPlan");
     } catch {
       setGenError("Could not generate meal plan. Check your connection.");
@@ -139,6 +135,7 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
       const text     = extractText(data.content);
       const newMeals = parseJSON(text).map(m => ({ ...m, id: uid() }));
       setProposed([...lockedMeals, ...newMeals]);
+      setProposedAt(Date.now());
       addCost("mealPlan");
     } catch {
       setGenError("Could not regenerate. Try again.");
@@ -149,6 +146,7 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
   const acceptPlan = () => {
     setMealPlan(proposed.map(p => ({ ...p, id: uid(), checked: false })));
     setProposed([]);
+    setProposedAt(null);
     setLocked({});
     showBanner("✓ Meal plan saved!", "success");
   };
@@ -319,7 +317,17 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
 
     // ── Proposed plan ─────────────────────────────────────────────────────────
     proposed.length > 0 && h(Card, { className: "proposed-card", style: { marginBottom: 20 } },
-      h("div", { className: "primary font-bold font-serif", style: { fontSize: 15, marginBottom: 4 } }, "Proposed Plan"),
+      h("div", { className: "flex-between", style: { marginBottom: 4 } },
+        h("div", { className: "primary font-bold font-serif", style: { fontSize: 15 } }, "Proposed Plan"),
+        h("button", {
+          onClick: () => { setProposed([]); setProposedAt(null); },
+          style: { background: "none", border: "none", cursor: "pointer", color: "#7A6A55", fontSize: 20 },
+          title: "Dismiss proposed plan",
+        }, "×"),
+      ),
+      proposedAt && h("div", { className: "muted text-xs", style: { marginBottom: 8 } },
+        `Proposed ${new Date(proposedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}`,
+      ),
       h("div", { style: { display: "flex", alignItems: "center", gap: 16, marginBottom: 12 } },
         h("div", { className: "muted text-sm" },
           h("span", { style: { color: "#2A7D4F", fontWeight: 700 } }, "✅ = keep  "),

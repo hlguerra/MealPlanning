@@ -13,6 +13,8 @@ window.APP.RecipesScreen = function({ recipes, setRecipes, onAddToMealPlan, onAd
   const [search, setSearch] = useState("");
   const [filterCourse,  setFilterCourse]  = useState("");
   const [filterProtein, setFilterProtein] = useState("");
+  const [sortBy,        setSortBy]        = useState("az");
+  const [showHidden,    setShowHidden]    = useState(false);
   const scrollPos = useRef(0);
   const [importing,     setImporting]     = useState(false);
   const [importUrl,     setImportUrl]     = useState("");
@@ -20,18 +22,31 @@ window.APP.RecipesScreen = function({ recipes, setRecipes, onAddToMealPlan, onAd
   const [importError,   setImportError]   = useState("");
 
   // ── Filtering ──────────────────────────────────────────────────────────────
-  const filtered = recipes.filter(r => {
-    const q = search.toLowerCase();
-    if (q) {
-      const inName = r.name.toLowerCase().includes(q);
-      const inTags = (r.tags || []).join(" ").toLowerCase().includes(q);
-      const inProt = (r.proteins || []).join(" ").toLowerCase().includes(q);
-      if (!inName && !inTags && !inProt) return false;
-    }
-    if (filterCourse  && r.course !== filterCourse) return false;
-    if (filterProtein && !(r.proteins || []).includes(filterProtein)) return false;
-    return true;
-  });
+  const filtered = recipes
+    .filter(r => {
+      if (!showHidden && r.hidden) return false;
+      if (showHidden && !r.hidden) return false;
+      const q = search.toLowerCase();
+      if (q) {
+        const inName = r.name.toLowerCase().includes(q);
+        const inTags = (r.tags || []).join(" ").toLowerCase().includes(q);
+        const inProt = (r.proteins || []).join(" ").toLowerCase().includes(q);
+        if (!inName && !inTags && !inProt) return false;
+      }
+      if (filterCourse  && r.course !== filterCourse) return false;
+      if (filterProtein && !(r.proteins || []).includes(filterProtein)) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      if (sortBy === "az")      return a.name.localeCompare(b.name);
+      if (sortBy === "recent")  return (b.createdAt || 0) - (a.createdAt || 0);
+      if (sortBy === "lastMade") {
+        const aDate = a.lastMadeAt || 0;
+        const bDate = b.lastMadeAt || 0;
+        return bDate - aDate;
+      }
+      return 0;
+    });
 
   // ── Navigation ─────────────────────────────────────────────────────────────
   const openRecipe  = r => { scrollPos.current = window.scrollY; setActive(r); setView("detail"); };
@@ -41,7 +56,7 @@ window.APP.RecipesScreen = function({ recipes, setRecipes, onAddToMealPlan, onAd
     if (recipe.id && recipes.find(r => r.id === recipe.id)) {
       setRecipes(rs => rs.map(r => r.id === recipe.id ? recipe : r));
     } else {
-      setRecipes(rs => [...rs, { ...recipe, id: uid() }]);
+      setRecipes(rs => [...rs, { ...recipe, id: uid(), createdAt: Date.now() }]);
     }
     setView("list");
   };
@@ -51,6 +66,13 @@ window.APP.RecipesScreen = function({ recipes, setRecipes, onAddToMealPlan, onAd
     setView("list");
     showBanner("Recipe deleted.", "success");
   });
+
+  const toggleHideRecipe = id => {
+    setRecipes(rs => rs.map(r => r.id === id ? { ...r, hidden: !r.hidden } : r));
+    const recipe = recipes.find(r => r.id === id);
+    showBanner(recipe?.hidden ? "Recipe unhidden." : "Recipe hidden.", "success");
+    setView("list");
+  };
 
   // ── URL import ─────────────────────────────────────────────────────────────
   const importFromUrl = async () => {
@@ -84,7 +106,7 @@ URL: ${importUrl.trim()}`,
   };
 
   // ── Render ─────────────────────────────────────────────────────────────────
-  if (view === "detail" && active) return h(RecipeDetail, { recipe: active, onBack: closeDetail, onEdit: () => setView("edit"), onDelete: () => deleteRecipe(active.id), onAddToMealPlan, onAddToGrocery, showBanner });
+  if (view === "detail" && active) return h(RecipeDetail, { recipe: active, onBack: closeDetail, onEdit: () => setView("edit"), onDelete: () => deleteRecipe(active.id), onHide: () => toggleHideRecipe(active.id), onAddToMealPlan, onAddToGrocery, showBanner });
   if (view === "edit"   && active) return h(RecipeForm,   { recipe: active, onSave: saveRecipe, onCancel: closeDetail });
   if (view === "new")              return h(RecipeForm,   { recipe: null,   onSave: saveRecipe, onCancel: () => setView("list") });
 
@@ -110,7 +132,7 @@ URL: ${importUrl.trim()}`,
     // Search + filters
     h("div", { style: { marginBottom: 16 } },
       h("input", { className: "search-bar", value: search, onChange: e => setSearch(e.target.value), placeholder: "🔍 Search recipes, tags, proteins…" }),
-      h("div", { className: "flex gap-8" },
+      h("div", { className: "flex gap-8", style: { marginBottom: 8 } },
         h("select", { className: "form-input form-select", style: { flex: 1 }, value: filterCourse, onChange: e => setFilterCourse(e.target.value) },
           h("option", { value: "" }, "All courses"),
           COURSES.map(c => h("option", { key: c, value: c }, c)),
@@ -119,6 +141,17 @@ URL: ${importUrl.trim()}`,
           h("option", { value: "" }, "All proteins"),
           PROTEINS.map(p => h("option", { key: p, value: p }, p)),
         ),
+      ),
+      h("div", { className: "flex gap-8" },
+        h("select", { className: "form-input form-select", style: { flex: 1 }, value: sortBy, onChange: e => setSortBy(e.target.value) },
+          h("option", { value: "az" }, "A–Z"),
+          h("option", { value: "recent" }, "Recently Added"),
+          h("option", { value: "lastMade" }, "Last Made"),
+        ),
+        h("button", {
+          onClick: () => setShowHidden(v => !v),
+          style: { padding: "8px 14px", borderRadius: 8, border: "1.5px solid #F0E6D3", background: showHidden ? "#FDE8D8" : "#FFF8F0", color: showHidden ? "#D4622A" : "#7A6A55", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", whiteSpace: "nowrap" },
+        }, showHidden ? "👁 Showing Hidden" : "👁 Show Hidden"),
       ),
     ),
 
@@ -193,7 +226,7 @@ function RecipeCard({ recipe: r, onClick, onAddToMealPlan, onAddToGrocery, showB
 }
 
 // ── RecipeDetail ──────────────────────────────────────────────────────────────
-function RecipeDetail({ recipe, onBack, onEdit, onDelete, onAddToMealPlan, onAddToGrocery, showBanner }) {
+function RecipeDetail({ recipe, onBack, onEdit, onDelete, onHide, onAddToMealPlan, onAddToGrocery, showBanner }) {
   const [servings, setServings] = useState(recipe.servings || 2);
   const ratio = servings / (recipe.servings || 1);
 
@@ -279,6 +312,7 @@ function RecipeDetail({ recipe, onBack, onEdit, onDelete, onAddToMealPlan, onAdd
       }),
       h(Btn, { label: "Add to Grocery", icon: "🛒", variant: "accent", style: { flex: 1 }, onClick: () => onAddToGrocery(recipe, servings) }),
     ),
+    h(Btn, { label: recipe.hidden ? "Unhide Recipe" : "Hide Recipe", variant: "ghost", onClick: onHide, className: "btn-full", style: { marginBottom: 8 } }),
     h(Btn, { label: "Delete Recipe", variant: "danger", onClick: onDelete, className: "btn-full" }),
   );
 }

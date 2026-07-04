@@ -139,6 +139,7 @@ function App() {
       madeAt:     Date.now(),
     };
     setCookHistory(h => [...h, entry]);
+    setRecipes(rs => rs.map(r => r.name === meal.name ? { ...r, lastMadeAt: Date.now() } : r));
     // Mark checked in meal plan
     setMealPlan(mp => mp.map(m => m.id === meal.id ? { ...m, checked: true, checkedAt: Date.now() } : m));
     showBanner(`✓ ${meal.name} marked as made`, "success");

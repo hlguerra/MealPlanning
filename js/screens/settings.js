@@ -17,6 +17,7 @@ window.APP.SettingsScreen = function({ settings, saveSettings, myAppliances, set
   const [joinId,     setJoinId]     = useState("");
   const [joinPin,    setJoinPin]    = useState("");
   const [joinMsg,    setJoinMsg]    = useState("");
+  const [newKeyword, setNewKeyword] = useState("");
 
   const upd = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -34,6 +35,20 @@ window.APP.SettingsScreen = function({ settings, saveSettings, myAppliances, set
 
   const toggleAppliance = a =>
     setMyAppliances(ap => ap.includes(a) ? ap.filter(x => x !== a) : [...ap, a]);
+
+  const addKeyword = () => {
+    const kw = newKeyword.trim().toLowerCase();
+    if (!kw) return;
+    if ((form.keywords || []).find(k => k.label === kw)) return;
+    upd("keywords", [...(form.keywords || []), { label: kw, default: false }]);
+    setNewKeyword("");
+  };
+
+  const removeKeyword = label =>
+    upd("keywords", (form.keywords || []).filter(k => k.label !== label));
+
+  const toggleKeywordDefault = label =>
+    upd("keywords", (form.keywords || []).map(k => k.label === label ? { ...k, default: !k.default } : k));
 
   const saveAll = () => {
     saveSettings(form);
@@ -208,6 +223,43 @@ window.APP.SettingsScreen = function({ settings, saveSettings, myAppliances, set
           h("span", { className: "muted", style: { fontWeight: 400, fontSize: 11 } }, "(blank = any)"),
         ),
         h(PillToggle, { options: PROTEINS, selected: form.defaultProteins || [], onToggle: toggleDefProtein }),
+      ),
+    ),
+
+    // ── Meal keywords ─────────────────────────────────────────────────────────
+    h(Card, { style: { marginBottom: 16 } },
+      h("div", { className: "font-bold font-serif mb-4", style: { fontSize: 15 } }, "🏷 Meal Keywords"),
+      h("div", { className: "muted text-sm", style: { marginBottom: 12 } }, "Keywords added to meal plan generation. Toggle ★ to include by default."),
+      h("div", { className: "flex gap-8", style: { marginBottom: 12 } },
+        h("input", {
+          className: "form-input",
+          style: { flex: 1 },
+          value: newKeyword,
+          onChange: e => setNewKeyword(e.target.value),
+          onKeyDown: e => e.key === "Enter" && addKeyword(),
+          placeholder: "e.g. healthy, low carb, quick…",
+        }),
+        h(Btn, { label: "Add", variant: "ghost", onClick: addKeyword }),
+      ),
+      (form.keywords || []).length === 0 && h("div", { className: "muted text-sm italic" }, "No keywords yet."),
+      h("div", { className: "flex wrap gap-8" },
+        (form.keywords || []).map(k =>
+          h("div", {
+            key: k.label,
+            style: { display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", borderRadius: 20, border: `1.5px solid ${k.default ? "#D4622A" : "#F0E6D3"}`, background: k.default ? "#FDE8D8" : "#FFF8F0" },
+          },
+            h("button", {
+              onClick: () => toggleKeywordDefault(k.label),
+              title: k.default ? "On by default — click to turn off" : "Off by default — click to turn on",
+              style: { background: "none", border: "none", cursor: "pointer", fontSize: 14, padding: 0, color: k.default ? "#D4622A" : "#C0C0C0" },
+            }, "★"),
+            h("span", { style: { fontSize: 13, fontWeight: 600, color: k.default ? "#D4622A" : "#7A6A55" } }, k.label),
+            h("button", {
+              onClick: () => removeKeyword(k.label),
+              style: { background: "none", border: "none", cursor: "pointer", color: "#C0392B", fontSize: 16, padding: 0, lineHeight: 1 },
+            }, "×"),
+          )
+        ),
       ),
     ),
 

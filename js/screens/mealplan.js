@@ -20,10 +20,13 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
   const recipeCache = React.useRef({});
 
   // Generator filters
-  const [daysStr,   setDaysStr]   = useState(String(settings.days || 7));
-  const [peopleStr, setPeopleStr] = useState(String(settings.people || 2));
-  const [mealTypes, setMealTypes] = useState(settings.defaultMealTypes?.length ? settings.defaultMealTypes : ["Dinner"]);
-  const [proteins,  setProteins]  = useState(settings.defaultProteins || []);
+  const [daysStr,         setDaysStr]         = useState(String(settings.days || 7));
+  const [peopleStr,       setPeopleStr]        = useState(String(settings.people || 2));
+  const [mealTypes,       setMealTypes]        = useState(settings.defaultMealTypes?.length ? settings.defaultMealTypes : ["Dinner"]);
+  const [proteins,        setProteins]         = useState(settings.defaultProteins || []);
+  const [activeKeywords,  setActiveKeywords]   = useState(
+    (settings.keywords || []).filter(k => k.default).map(k => k.label)
+  );
 
   const days   = parseInt(daysStr)   || 1;
   const people = parseInt(peopleStr) || 1;
@@ -88,6 +91,7 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
       parts.push(`Do NOT suggest any of these (already selected): ${excludeNames.join(", ")}.`);
     }
 
+    if (activeKeywords.length) parts.push(`Apply these preferences to all meals: ${activeKeywords.join(", ")}.`);
     parts.push(`Vary proteins across meals — do not suggest more than 2 meals with the same protein unless explicitly requested. Mix cuisines and cooking methods (e.g. don't suggest all grilled or all stovetop meals).`);
     parts.push(`Randomness seed: ${Math.random().toString(36).slice(2, 8)}. Use this to vary your suggestions from previous responses.`);
     parts.push(`Return ONLY a JSON array, no markdown: [{"name":"","mealType":"Dinner","proteins":["Chicken"],"estimatedCost":12,"notes":"","fromSavedRecipe":false}]`);
@@ -298,6 +302,27 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
           h("span", { className: "muted", style: { fontWeight: 400, fontSize: 11 } }, "(blank = any)"),
         ),
         h(PillToggle, { options: PROTEINS, selected: proteins, onToggle: toggleProtein }),
+      ),
+
+      (settings.keywords || []).length > 0 && h("div", { style: { marginBottom: 14 } },
+        h("div", { className: "form-label" }, "Keywords ",
+          h("span", { className: "muted", style: { fontWeight: 400, fontSize: 11 } }, "(★ = your defaults)"),
+        ),
+        h("div", { className: "flex wrap gap-6" },
+          (settings.keywords || []).map(k =>
+            h("button", {
+              key: k.label,
+              onClick: () => setActiveKeywords(ks => ks.includes(k.label) ? ks.filter(x => x !== k.label) : [...ks, k.label]),
+              style: {
+                padding: "5px 14px", borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                fontFamily: "'DM Sans',sans-serif",
+                border: `1.5px solid ${activeKeywords.includes(k.label) ? "#D4622A" : "#F0E6D3"}`,
+                background: activeKeywords.includes(k.label) ? "#FDE8D8" : "#FFF8F0",
+                color: activeKeywords.includes(k.label) ? "#D4622A" : "#7A6A55",
+              },
+            }, `${k.default ? "★ " : ""}${k.label}`)
+          ),
+        ),
       ),
 
       mealTypes.length > 0 && h("div", { style: { fontSize: 12, color: "#7A6A55", marginBottom: 10, textAlign: "center", padding: "8px", background: "#FFF8F0", borderRadius: 8 } },

@@ -7,19 +7,26 @@ const { categorize } = window.APP;
 const { SECTIONS } = window.APP;
 
 // ── PantryScreen ──────────────────────────────────────────────────────────────
-window.APP.PantryScreen = function({ pantry, setPantry, addCost }) {
+window.APP.PantryScreen = function({ pantry, setPantry, addCost, knownIngredientNames }) {
   const [input,   setInput]   = useState("");
+  const [amount,  setAmount]  = useState("");
+  const [unit,    setUnit]    = useState("");
   const [suggest, setSuggest] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState("");
+  const { UNITS } = window.APP;
 
   // ── Item actions (no PIN required) ─────────────────────────────────────────
   const addItem = () => {
     const trimmed = input.trim();
     if (!trimmed) return;
     const section = categorize(trimmed);
-    setPantry(p => [...p, { id: uid(), name: trimmed, section }]);
-    setInput("");
+    setPantry(p => [...p, {
+      id: uid(), name: trimmed, section,
+      amount: amount.trim() ? +amount : "",
+      unit,
+    }]);
+    setInput(""); setAmount(""); setUnit("");
   };
 
   const removeItem = id => setPantry(p => p.filter(i => i.id !== id));
@@ -65,14 +72,32 @@ Return ONLY a valid JSON array, no markdown fences:
     // ── Add item ──────────────────────────────────────────────────────────────
     h(Card, { style: { marginBottom: 16 } },
       h("div", { className: "flex gap-8" },
-        h("input", {
-          className: "form-input",
-          style: { flex: 1 },
+        h(window.APP.IngredientAutocomplete, {
           value: input,
-          onChange: e => setInput(e.target.value),
-          onKeyDown: e => e.key === "Enter" && addItem(),
+          onChange: setInput,
+          knownNames: knownIngredientNames || [],
           placeholder: "Add item… (e.g. chicken thighs, rice)",
+          onEnter: addItem,
         }),
+        h("input", {
+          className: "form-input-sm",
+          style: { width: 56, flexShrink: 0 },
+          value: amount,
+          onChange: e => setAmount(e.target.value),
+          onKeyDown: e => e.key === "Enter" && addItem(),
+          placeholder: "Amt",
+          type: "number",
+          min: "0",
+        }),
+        h("select", {
+          className: "form-input-sm",
+          style: { width: 74, flexShrink: 0 },
+          value: unit,
+          onChange: e => setUnit(e.target.value),
+        },
+          h("option", { value: "" }, "unit"),
+          UNITS.map(u => h("option", { key: u, value: u }, u)),
+        ),
         h(Btn, { label: "Add", onClick: addItem, style: { flexShrink: 0, marginRight: 4 } }),
       ),
     ),
@@ -118,7 +143,10 @@ Return ONLY a valid JSON array, no markdown fences:
         h("div", { className: "grocery-section-label" }, section),
         items.map(item =>
           h("div", { key: item.id, style: { display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid #F0E6D3" } },
-            h("span", { style: { flex: 1, fontSize: 14 } }, item.name),
+            h("span", { style: { flex: 1, fontSize: 14 } },
+              item.name,
+              item.amount ? ` — ${item.amount}${item.unit ? " " + item.unit : ""}` : "",
+            ),
             h("button", {
               onClick: () => removeItem(item.id),
               style: { background: "none", border: "none", cursor: "pointer", color: "#C0392B", fontSize: 18, opacity: 0.5 },

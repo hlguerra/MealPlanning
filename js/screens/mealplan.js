@@ -6,7 +6,7 @@ const { uid, fmt$, callClaude, extractText, parseJSON, toggleInArray, plural } =
 const { MEAL_TYPES, MEAL_ICONS, PROTEINS } = window.APP;
 
 // ── MealPlanScreen ────────────────────────────────────────────────────────────
-window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipes, cookHistory, onAddToGrocery, onMarkAsMade, requestPin, settings, saveSettings, myAppliances, addCost, showBanner }) {
+window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipes, cookHistory, onAddToGrocery, onAddMealPlanToGrocery, onMarkAsMade, requestPin, settings, saveSettings, myAppliances, addCost, showBanner }) {
 
   const [generating, setGenerating] = useState(false);
   const [genError,   setGenError]   = useState("");
@@ -15,6 +15,7 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
   const [locked,     setLocked]     = useState({});
   const [markingId,  setMarkingId]  = useState(null); // id of meal being marked as made
   const [markDate,   setMarkDate]   = useState(new Date().toISOString().split("T")[0]);
+  const [removeFromPantry, setRemoveFromPantry] = useState(true); // default checked when marking as made
   const [clearConfirm, setClearConfirm] = useState(false);
   const [viewingRecipe, setViewingRecipe] = useState(null); // { meal, recipe, loading, error }
   const recipeCache = React.useRef({});
@@ -204,14 +205,6 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
   const deleteMeal   = id => setMealPlan(mp => mp.filter(m => m.id !== id));
   const clearAll     = ()  => { setMealPlan([]); setClearConfirm(false); showBanner("Meal plan cleared.", "success"); };
 
-  const addAllToGrocery = () => {
-    mealPlan.forEach(m => {
-      const r = recipes.find(r => r.name === m.name);
-      if (r) onAddToGrocery(r, r.servings);
-    });
-    showBanner("✓ Ingredients added to grocery list", "success");
-  };
-
   const groupByType = list => MEAL_TYPES.reduce((acc, t) => {
     const items = list.filter(m => m.mealType === t || (t === "Dinner" && !m.mealType));
     if (items.length) acc[t] = items;
@@ -225,7 +218,7 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
     h(SectionHeader, {
       title: "Meal Plan",
       action: h("div", { className: "flex gap-8" },
-        mealPlan.length > 0 && h(Btn, { label: "→ Grocery", variant: "accent", icon: "🛒", onClick: addAllToGrocery, className: "btn-sm" }),
+        mealPlan.length > 0 && h(Btn, { label: "→ Grocery", variant: "accent", icon: "🛒", onClick: onAddMealPlanToGrocery, className: "btn-sm" }),
         mealPlan.length > 0 && h(Btn, { label: "Clear All", variant: "danger", onClick: () => setClearConfirm(true), className: "btn-sm" }),
       ),
     }),
@@ -585,27 +578,38 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
               !m.checked && h("div", { style: { marginTop: 8, display: "flex", gap: 8, alignItems: "center" } },
                 // Show date input inline when marking
                 markingId === m.id
-                  ? h(React.Fragment, null,
-                      h("input", {
-                        type: "date",
-                        value: markDate,
-                        onChange: e => setMarkDate(e.target.value),
-                        style: { flex: 1, padding: "6px 10px", borderRadius: 8, border: "1.5px solid #F0E6D3", fontSize: 13, outline: "none", background: "#FFF8F0", fontFamily: "'DM Sans',sans-serif" },
-                      }),
-                      h(Btn, {
-                        label: "Confirm",
-                        onClick: () => { onMarkAsMade(m, markDate); setMarkingId(null); },
-                        style: { fontSize: 12, padding: "6px 12px" },
-                      }),
-                      h(Btn, {
-                        label: "Cancel",
-                        variant: "ghost",
-                        onClick: () => setMarkingId(null),
-                        style: { fontSize: 12, padding: "6px 10px" },
-                      }),
+                  ? h("div", { style: { flex: 1, display: "flex", flexDirection: "column", gap: 6 } },
+                      h("div", { style: { display: "flex", gap: 8 } },
+                        h("input", {
+                          type: "date",
+                          value: markDate,
+                          onChange: e => setMarkDate(e.target.value),
+                          style: { flex: 1, padding: "6px 10px", borderRadius: 8, border: "1.5px solid #F0E6D3", fontSize: 13, outline: "none", background: "#FFF8F0", fontFamily: "'DM Sans',sans-serif" },
+                        }),
+                        h(Btn, {
+                          label: "Confirm",
+                          onClick: () => { onMarkAsMade(m, markDate, removeFromPantry); setMarkingId(null); },
+                          style: { fontSize: 12, padding: "6px 12px" },
+                        }),
+                        h(Btn, {
+                          label: "Cancel",
+                          variant: "ghost",
+                          onClick: () => setMarkingId(null),
+                          style: { fontSize: 12, padding: "6px 10px" },
+                        }),
+                      ),
+                      h("label", { style: { display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#7A6A55", cursor: "pointer" } },
+                        h("input", {
+                          type: "checkbox",
+                          checked: removeFromPantry,
+                          onChange: e => setRemoveFromPantry(e.target.checked),
+                          style: { width: 14, height: 14, accentColor: "#2A7D4F", cursor: "pointer" },
+                        }),
+                        "Remove ingredients from pantry",
+                      ),
                     )
                   : h("button", {
-                      onClick: () => { setMarkingId(m.id); setMarkDate(new Date().toISOString().split("T")[0]); },
+                      onClick: () => { setMarkingId(m.id); setMarkDate(new Date().toISOString().split("T")[0]); setRemoveFromPantry(true); },
                       style: { background: "none", border: "1.5px solid #2A7D4F", borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 600, color: "#2A7D4F", cursor: "pointer", fontFamily: "'DM Sans',sans-serif" },
                     }, "✓ Mark as Made"),
               ),

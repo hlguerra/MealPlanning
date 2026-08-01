@@ -70,6 +70,36 @@ window.APP.APPLIANCES = [
   "Microwave",
 ];
 
+// ── Ingredient quantity units ─────────────────────────────────────────────────
+// Grouped by type so amounts can only be auto-combined/converted within the
+// same type (volume with volume, weight with weight). "count" covers whole
+// items (e.g. "3 onions") and has no conversion. Leave unit blank for
+// non-quantifiable items like "salt to taste".
+window.APP.UNITS = [
+  "tsp", "tbsp", "fl oz", "cup", "pint", "quart", "gallon", "ml", "l",
+  "oz", "lb", "g", "kg",
+  "count",
+];
+
+// Conversion factor to a base unit within each type (ml for volume, g for weight).
+// count has no base — same-unit only.
+window.APP.UNIT_INFO = {
+  tsp:      { type: "volume", toBase: 4.92892 },
+  tbsp:     { type: "volume", toBase: 14.7868 },
+  "fl oz":  { type: "volume", toBase: 29.5735 },
+  cup:      { type: "volume", toBase: 236.588 },
+  pint:     { type: "volume", toBase: 473.176 },
+  quart:    { type: "volume", toBase: 946.353 },
+  gallon:   { type: "volume", toBase: 3785.41 },
+  ml:       { type: "volume", toBase: 1 },
+  l:        { type: "volume", toBase: 1000 },
+  oz:       { type: "weight", toBase: 28.3495 },
+  lb:       { type: "weight", toBase: 453.592 },
+  g:        { type: "weight", toBase: 1 },
+  kg:       { type: "weight", toBase: 1000 },
+  count:    { type: "count",  toBase: 1 },
+};
+
 // ── Estimated API cost per feature call (USD) ─────────────────────────────────
 // Based on real-world observed usage — recalibrated May 2026.
 // claude-sonnet-4-6 pricing: $3/MTok input, $15/MTok output.

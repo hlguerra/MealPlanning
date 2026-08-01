@@ -7,7 +7,7 @@ const { categorize } = window.APP;
 const { COURSES, PROTEINS, APPLIANCES, SECTIONS } = window.APP;
 
 // ── RecipesScreen ─────────────────────────────────────────────────────────────
-window.APP.RecipesScreen = function({ recipes, setRecipes, onAddToMealPlan, onAddToGrocery, requestPin, addCost, showBanner }) {
+window.APP.RecipesScreen = function({ recipes, setRecipes, onAddToMealPlan, onAddToGrocery, requestPin, addCost, showBanner, knownIngredientNames }) {
   const [view,   setView]   = useState("list");
   const [active, setActive] = useState(null);
   const [search, setSearch] = useState("");
@@ -107,8 +107,8 @@ URL: ${importUrl.trim()}`,
 
   // ── Render ─────────────────────────────────────────────────────────────────
   if (view === "detail" && active) return h(RecipeDetail, { recipe: active, onBack: closeDetail, onEdit: () => setView("edit"), onDelete: () => deleteRecipe(active.id), onHide: () => toggleHideRecipe(active.id), onAddToMealPlan, onAddToGrocery, showBanner });
-  if (view === "edit"   && active) return h(RecipeForm,   { recipe: active, onSave: saveRecipe, onCancel: closeDetail });
-  if (view === "new")              return h(RecipeForm,   { recipe: null,   onSave: saveRecipe, onCancel: () => setView("list") });
+  if (view === "edit"   && active) return h(RecipeForm,   { recipe: active, onSave: saveRecipe, onCancel: closeDetail, knownIngredientNames });
+  if (view === "new")              return h(RecipeForm,   { recipe: null,   onSave: saveRecipe, onCancel: () => setView("list"), knownIngredientNames });
 
   return h("div", null,
     h(SectionHeader, {
@@ -318,10 +318,11 @@ function RecipeDetail({ recipe, onBack, onEdit, onDelete, onHide, onAddToMealPla
 }
 
 // ── RecipeForm ────────────────────────────────────────────────────────────────
-function RecipeForm({ recipe, onSave, onCancel }) {
+function RecipeForm({ recipe, onSave, onCancel, knownIngredientNames }) {
   const blank = { name: "", course: "Main", proteins: [], tags: [], appliances: [], servings: 2, prepTime: 0, cookTime: 0, photo: "", estimatedCost: 0, ingredients: [], steps: [""], notes: "", nutrition: {} };
   const [form, setForm] = useState(recipe ? { ...blank, ...recipe } : blank);
   const [tagInput, setTagInput] = useState("");
+  const { UNITS } = window.APP;
 
   const upd = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -386,9 +387,22 @@ function RecipeForm({ recipe, onSave, onCancel }) {
       (form.ingredients || []).map(ing =>
         h("div", { key: ing.id },
           h("div", { className: "ing-row" },
-            h("input", { className: "form-input-sm", value: ing.name,   onChange: e => updIngName(ing.id, e.target.value), placeholder: "Name" }),
-            h("input", { className: "form-input-sm", value: ing.amount, onChange: e => updIngKey(ing.id, "amount", e.target.value), placeholder: "Amt", type: "number" }),
-            h("input", { className: "form-input-sm", value: ing.unit,   onChange: e => updIngKey(ing.id, "unit",   e.target.value), placeholder: "Unit" }),
+            h(window.APP.IngredientAutocomplete, {
+              value: ing.name,
+              onChange: v => updIngName(ing.id, v),
+              knownNames: knownIngredientNames || [],
+              placeholder: "Name",
+              style: { flex: 1 },
+            }),
+            h("input", { className: "form-input-sm", style: { width: 56 }, value: ing.amount, onChange: e => updIngKey(ing.id, "amount", e.target.value), placeholder: "Amt", type: "number" }),
+            h("select", {
+              className: "form-input-sm", style: { width: 74 },
+              value: ing.unit,
+              onChange: e => updIngKey(ing.id, "unit", e.target.value),
+            },
+              h("option", { value: "" }, "unit"),
+              UNITS.map(u => h("option", { key: u, value: u }, u)),
+            ),
             h("button", { onClick: () => remIng(ing.id), style: { background: "none", border: "none", cursor: "pointer", color: "#C0392B", fontSize: 18 } }, "×"),
           ),
           h("div", { className: "ing-section-hint" }, `📂 ${ing.section}`),

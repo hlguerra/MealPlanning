@@ -45,6 +45,79 @@ window.APP.utils = {
     return `${a} ${u}`;
   },
 
+// ── Ingredient name normalization ─────────────────────────────────────────────
+  // Lowercases, trims, strips a small set of common adjectives, and de-pluralizes.
+  // Used to match "chicken breasts, boneless" to "chicken breast" for
+  // pantry/grocery/recipe combining. Intentionally simple — not a full NLP match.
+  // normalizeIngName("Chicken Breasts, Boneless") → "chicken breast"
+  normalizeIngName(name = "") {
+    const STRIP_WORDS = [
+      "fresh", "frozen", "boneless", "skinless", "chopped", "diced", "minced",
+      "sliced", "shredded", "grated", "large", "small", "medium", "extra",
+      "ground", "whole", "raw", "cooked", "ripe", "organic",
+    ];
+    let n = name.toLowerCase().replace(/[,.]/g, " ").trim();
+    n = n.split(/\s+/).filter(w => w && !STRIP_WORDS.includes(w)).join(" ");
+    // naive de-pluralization: boxes→box, tomatoes→tomato, onions→onion, but not "peas"→"pea" over-eagerly
+    n = n.replace(/\b(\w+)ies\b/g, "$1y")
+         .replace(/\b(\w+)(ches|shes|xes|oes)\b/g, (_, stem, suf) => stem + suf.slice(0, -2))
+         .replace(/\b(\w+[^s])s\b/g, "$1");
+    return n.trim();
+  },
+
+  // ── Unit conversion ────────────────────────────────────────────────────────
+  // Converts an amount between two units of the same type (volume or weight).
+  // Returns null if units are missing, unknown, "count", or different types.
+  convertUnit(amount, fromUnit, toUnit) {
+    const UNIT_INFO = window.APP.UNIT_INFO || {};
+    if (!fromUnit || !toUnit) return null;
+    if (fromUnit === toUnit) return amount;
+    const from = UNIT_INFO[fromUnit], to = UNIT_INFO[toUnit];
+    if (!from || !to) return null;
+    if (from.type !== to.type || from.type === "count") return null;
+    return +((amount * from.toBase) / to.toBase).toFixed(3);
+  },
+
+  // ── Combine ingredient lists ──────────────────────────────────────────────────
+  // Takes a flat array of { name, amount, unit } (e.g. all ingredients across a
+  // week's recipes) and combines entries with matching normalized names.
+  // Same-unit or same-type amounts are summed (converted to the first-seen unit
+  // for that name); incompatible units are combined by tacking on a separate
+  // note rather than guessing. Non-numeric/blank amounts are left as notes.
+  combineIngredients(items = []) {
+    const { normalizeIngName, convertUnit } = window.APP.utils;
+    const groups = {};
+    items.forEach(item => {
+      const key = normalizeIngName(item.name);
+      if (!key) return;
+      if (!groups[key]) {
+        groups[key] = { name: item.name, section: item.section, amount: 0, unit: item.unit || "", notes: [], hasAmount: false };
+      }
+      const g = groups[key];
+      const amt = parseFloat(item.amount);
+      if (!item.unit || isNaN(amt)) {
+        // non-quantifiable (e.g. "salt to taste") — keep as a note, don't sum
+        g.notes.push(item.amount ? `${item.amount}${item.unit ? " " + item.unit : ""}` : (item.unit || ""));
+        return;
+      }
+      if (!g.hasAmount) {
+        g.amount = amt;
+        g.unit = item.unit;
+        g.hasAmount = true;
+        return;
+      }
+      const converted = convertUnit(amt, item.unit, g.unit);
+      if (converted !== null) {
+        g.amount = +(g.amount + converted).toFixed(3);
+      } else {
+        // incompatible units — can't sum, flag amount as unknown
+        g.notes.push(`${amt} ${item.unit} (check amount — unit mismatch)`);
+        g.mismatched = true;
+      }
+    });
+    return Object.values(groups);
+  },
+
   // ── Rolling 30-day cost log ──────────────────────────────────────────────────
   // Filters a cost log array to only entries within the last 30 days.
   rolling30(log = []) {

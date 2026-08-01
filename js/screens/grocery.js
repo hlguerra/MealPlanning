@@ -7,10 +7,12 @@ const { categorize } = window.APP;
 const { SECTIONS, FLYER_LINKS } = window.APP;
 
 // ── GroceryScreen ─────────────────────────────────────────────────────────────
-window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setStaples, settings, spending, onRecordPurchase, addCost, showBanner, priceListResults, setPriceListResults }) {
+window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setStaples, settings, spending, onRecordPurchase, addCost, showBanner, priceListResults, setPriceListResults, knownIngredientNames, onCompleteList }) {
   const [input,       setInput]       = useState("");
   const [qty,         setQty]         = useState("");
+  const [unit,        setUnit]        = useState("");
   const [showStaples, setShowStaples] = useState(false);
+  const { UNITS } = window.APP;
 
   // Purchase recording state
   const [showPurchase,   setShowPurchase]   = useState(false);
@@ -28,12 +30,13 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
       name:    trimmed,
       section,
       checked: false,
-      amount:  qty.trim() || "",
-      unit:    "",
+      amount:  qty.trim() ? +qty : "",
+      unit,
       misc:    true,
     }]);
     setInput("");
     setQty("");
+    setUnit("");
   };
 
   const toggleItem   = id => setGroceryList(l => l.map(i  => i.id === id ? { ...i, checked: !i.checked } : i));
@@ -57,10 +60,11 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
     const amt = parseFloat(purchaseAmount);
     if (!amt || amt <= 0) return;
     onRecordPurchase(amt, purchaseNote);
+    if (onCompleteList) onCompleteList(groceryList.filter(i => i.checked));
     setPurchaseAmount("");
     setPurchaseNote("");
     setShowPurchase(false);
-    showBanner(`✓ Purchase of ${fmt$(amt)} recorded`, "success");
+    showBanner(`✓ Purchase of ${fmt$(amt)} recorded — items added to pantry`, "success");
   };
 
   // Spending summary
@@ -100,18 +104,17 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
 
     // Add item — with optional quantity
     h(Card, { style: { marginBottom: 16 } },
-      h("div", { className: "flex gap-8", style: { marginBottom: qty !== "" ? 0 : 0 } },
-        h("input", {
-          className: "form-input",
-          style: { flex: 1 },
+      h("div", { className: "flex gap-8" },
+        h(window.APP.IngredientAutocomplete, {
           value: input,
-          onChange: e => setInput(e.target.value),
-          onKeyDown: e => e.key === "Enter" && addItem(),
+          onChange: setInput,
+          knownNames: knownIngredientNames || [],
           placeholder: "Add item…",
+          onEnter: addItem,
         }),
         h("input", {
-          className: "form-input",
-          style: { width: 64, flexShrink: 0 },
+          className: "form-input-sm",
+          style: { width: 56, flexShrink: 0 },
           value: qty,
           onChange: e => setQty(e.target.value),
           onKeyDown: e => e.key === "Enter" && addItem(),
@@ -119,6 +122,15 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
           type: "number",
           min: "0",
         }),
+        h("select", {
+          className: "form-input-sm",
+          style: { width: 74, flexShrink: 0 },
+          value: unit,
+          onChange: e => setUnit(e.target.value),
+        },
+          h("option", { value: "" }, "unit"),
+          UNITS.map(u => h("option", { key: u, value: u }, u)),
+        ),
         h(Btn, { label: "Add", onClick: addItem, style: { flexShrink: 0, marginRight: 4 } }),
       ),
     ),
@@ -170,6 +182,7 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
             h("span", { className: `grocery-item-name ${item.checked ? "checked" : ""}` },
               item.name,
               item.amount ? ` — ${item.amount}${item.unit ? " " + item.unit : ""}` : "",
+              item.checkAmount && h("span", { className: "warn text-xs", style: { marginLeft: 6 } }, "⚠ check amount"),
             ),
             h("button", { className: "grocery-item-delete", onClick: () => deleteItem(item.id) }, "×"),
           )

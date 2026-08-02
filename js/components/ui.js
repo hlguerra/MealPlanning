@@ -114,6 +114,73 @@ window.APP.Select = function({ label, value, onChange, options, style = {} }) {
   );
 };
 
+// ── IngredientSelect ────────────────────────────────────────────────────────────
+// Search-to-select against your standard ingredient list. Type to filter; tap a
+// match to select it, or tap "+ Add '<x>' as new ingredient" to create one.
+// Unlike IngredientAutocomplete, this always resolves to a real standard-list id
+// (selectedId), so matching/combining downstream is exact, not fuzzy.
+window.APP.IngredientSelect = function({ ingredients = [], selectedId, onSelect, onAddNew, placeholder = "Search ingredient…", flagged }) {
+  const [query, setQuery] = useState("");
+  const [open,  setOpen]  = useState(false);
+  const selected = ingredients.find(i => i.id === selectedId);
+
+  const q = query.trim().toLowerCase();
+  const matches = q.length < 1 ? ingredients.slice(0, 8) : ingredients.filter(i => i.name.toLowerCase().includes(q)).slice(0, 8);
+  const exactMatch = ingredients.some(i => i.name.toLowerCase() === q);
+
+  const pick = ing => { onSelect(ing); setQuery(""); setOpen(false); };
+  const addNew = () => {
+    const name = query.trim();
+    if (!name) return;
+    const created = onAddNew(name);
+    if (created) pick(created);
+  };
+
+  return h("div", { style: { position: "relative", flex: 1 } },
+    (selected && !open)
+      ? h("div", {
+          className: "form-input-sm",
+          style: {
+            display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer",
+            background: flagged ? "#FFF6E8" : "#fff", borderColor: flagged ? "#E8B84B" : undefined,
+          },
+          onClick: () => { setOpen(true); setQuery(""); },
+        },
+          h("span", null, selected.name),
+          h("span", { style: { fontSize: 10, color: "#B0A48C" } }, "change"),
+        )
+      : h("input", {
+          className: "form-input-sm",
+          value: query,
+          onChange: e => { setQuery(e.target.value); setOpen(true); },
+          onFocus: () => setOpen(true),
+          onBlur: () => setTimeout(() => setOpen(false), 150), // allow click on option
+          placeholder,
+          style: { width: "100%" },
+        }),
+    open && h("div", {
+      style: {
+        position: "absolute", top: "100%", left: 0, right: 0, zIndex: 20,
+        background: "#fff", border: "1.5px solid #F0E6D3", borderRadius: 8,
+        boxShadow: "0 4px 12px rgba(0,0,0,0.08)", marginTop: 2, maxHeight: 200, overflowY: "auto",
+      },
+    },
+      matches.map(ing =>
+        h("div", {
+          key: ing.id,
+          onMouseDown: () => pick(ing),
+          style: { padding: "8px 10px", fontSize: 13, cursor: "pointer", borderBottom: "1px solid #F5EEE0" },
+        }, ing.name)
+      ),
+      query.trim() && !exactMatch && h("div", {
+        onMouseDown: addNew,
+        style: { padding: "8px 10px", fontSize: 13, cursor: "pointer", color: "#2A7D4F", fontWeight: 600 },
+      }, `+ Add "${query.trim()}" as new ingredient`),
+      !query.trim() && matches.length === 0 && h("div", { style: { padding: "8px 10px", fontSize: 12, color: "#B0A48C" } }, "Type to search…"),
+    ),
+  );
+};
+
 // ── IngredientAutocomplete ─────────────────────────────────────────────────────
 // Text input with a dropdown of matching known ingredient names, built from
 // whatever names you've already used across recipes/pantry/grocery (passed in

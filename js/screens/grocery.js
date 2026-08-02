@@ -7,8 +7,8 @@ const { categorize } = window.APP;
 const { SECTIONS, FLYER_LINKS } = window.APP;
 
 // ── GroceryScreen ─────────────────────────────────────────────────────────────
-window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setStaples, settings, spending, onRecordPurchase, addCost, showBanner, priceListResults, setPriceListResults, knownIngredientNames, onCompleteList }) {
-  const [input,       setInput]       = useState("");
+window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setStaples, settings, spending, onRecordPurchase, addCost, showBanner, priceListResults, setPriceListResults, knownIngredientNames, onCompleteList, ingredients, addNewIngredient }) {
+  const [selectedIng, setSelectedIng] = useState(null); // { id, name }
   const [qty,         setQty]         = useState("");
   const [unit,        setUnit]        = useState("");
   const [showStaples, setShowStaples] = useState(false);
@@ -22,19 +22,19 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
 
   // ── Item actions ────────────────────────────────────────────────────────────
   const addItem = () => {
-    const trimmed = input.trim();
-    if (!trimmed) return;
-    const section = categorize(trimmed);
+    if (!selectedIng) return;
+    const section = categorize(selectedIng.name);
     setGroceryList(l => [...l, {
       id:      uid(),
-      name:    trimmed,
+      name:    selectedIng.name,
+      ingredientId: selectedIng.id,
       section,
       checked: false,
       amount:  qty.trim() ? +qty : "",
       unit,
       misc:    true,
     }]);
-    setInput("");
+    setSelectedIng(null);
     setQty("");
     setUnit("");
   };
@@ -61,10 +61,11 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
     if (!amt || amt <= 0) return;
     onRecordPurchase(amt, purchaseNote);
     if (onCompleteList) onCompleteList(groceryList.filter(i => i.checked));
+    setGroceryList(l => l.filter(i => !i.checked)); // remove only the items just purchased; leave unchecked ones
     setPurchaseAmount("");
     setPurchaseNote("");
     setShowPurchase(false);
-    showBanner(`✓ Purchase of ${fmt$(amt)} recorded — items added to pantry`, "success");
+    showBanner(`✓ Purchase of ${fmt$(amt)} recorded — checked items added to pantry`, "success");
   };
 
   // Spending summary
@@ -88,7 +89,6 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
   }, {});
 
   const checkedCount   = groceryList.filter(i => i.checked).length;
-  const allChecked     = groceryList.length > 0 && checkedCount === groceryList.length;
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return h("div", null,
@@ -105,12 +105,12 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
     // Add item — with optional quantity
     h(Card, { style: { marginBottom: 16 } },
       h("div", { className: "flex gap-8" },
-        h(window.APP.IngredientAutocomplete, {
-          value: input,
-          onChange: setInput,
-          knownNames: knownIngredientNames || [],
+        h(window.APP.IngredientSelect, {
+          ingredients: ingredients || [],
+          selectedId: selectedIng?.id,
+          onSelect: sel => setSelectedIng(sel),
+          onAddNew: name => addNewIngredient(name),
           placeholder: "Add item…",
-          onEnter: addItem,
         }),
         h("input", {
           className: "form-input-sm",
@@ -193,8 +193,8 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
     // Bottom actions
     groceryList.length > 0 && h("div", { className: "flex", style: { justifyContent: "space-between", marginTop: 8, marginBottom: 16 } },
       h(Btn, { label: "Clear All", variant: "danger", onClick: clearAll, className: "btn-sm" }),
-      allChecked && h(Btn, {
-        label: "Mark as Purchased",
+      checkedCount > 0 && h(Btn, {
+        label: checkedCount === groceryList.length ? "Mark as Purchased" : `Mark ${checkedCount} as Purchased`,
         variant: "accent",
         icon: "🏷",
         onClick: () => setShowPurchase(true),

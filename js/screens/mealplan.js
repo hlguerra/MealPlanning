@@ -6,7 +6,7 @@ const { uid, fmt$, callClaude, extractText, parseJSON, toggleInArray, plural } =
 const { MEAL_TYPES, MEAL_ICONS, PROTEINS } = window.APP;
 
 // ── MealPlanScreen ────────────────────────────────────────────────────────────
-window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipes, cookHistory, onAddToGrocery, onAddMealPlanToGrocery, onMarkAsMade, requestPin, settings, saveSettings, myAppliances, addCost, showBanner }) {
+window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipes, cookHistory, onAddToGrocery, onAddMealPlanToGrocery, onMarkAsMade, requestPin, settings, saveSettings, myAppliances, addCost, showBanner, ingredients }) {
 
   const [generating, setGenerating] = useState(false);
   const [genError,   setGenError]   = useState("");
@@ -16,6 +16,7 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
   const [markingId,  setMarkingId]  = useState(null); // id of meal being marked as made
   const [markDate,   setMarkDate]   = useState(new Date().toISOString().split("T")[0]);
   const [removeFromPantry, setRemoveFromPantry] = useState(true); // default checked when marking as made
+  const [groceryLoading, setGroceryLoading] = useState(false);
   const [clearConfirm, setClearConfirm] = useState(false);
   const [viewingRecipe, setViewingRecipe] = useState(null); // { meal, recipe, loading, error }
   const recipeCache = React.useRef({});
@@ -149,7 +150,7 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
   };
 
   const acceptPlan = () => {
-    setMealPlan(proposed.map(p => ({ ...p, id: uid(), checked: false })));
+    setMealPlan(mp => [...mp, ...proposed.map(p => ({ ...p, id: uid(), checked: false }))]);
     setProposed([]);
     setProposedAt(null);
     setLocked({});
@@ -177,7 +178,7 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
       });
       const text   = extractText(data.content);
       const parsed = parseJSON(text);
-      parsed.ingredients = (parsed.ingredients || []).map(ing => ({
+      parsed.ingredients = window.APP.utils.linkIngredients(parsed.ingredients || [], ingredients).map(ing => ({
         ...ing,
         section: ing.section && ing.section !== "Other" ? ing.section : categorize(ing.name),
       }));
@@ -218,7 +219,6 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
     h(SectionHeader, {
       title: "Meal Plan",
       action: h("div", { className: "flex gap-8" },
-        mealPlan.length > 0 && h(Btn, { label: "→ Grocery", variant: "accent", icon: "🛒", onClick: onAddMealPlanToGrocery, className: "btn-sm" }),
         mealPlan.length > 0 && h(Btn, { label: "Clear All", variant: "danger", onClick: () => setClearConfirm(true), className: "btn-sm" }),
       ),
     }),
@@ -548,7 +548,20 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
 
     // ── Current plan ──────────────────────────────────────────────────────────
     mealPlan.length > 0 && h("div", null,
-      h("div", { className: "font-bold font-serif mb-12", style: { fontSize: 16 } }, "Current Plan"),
+      h("div", { className: "flex-between mb-12" },
+        h("div", { className: "font-bold font-serif", style: { fontSize: 16 } }, "Current Plan"),
+        h(Btn, {
+          label: groceryLoading ? "Adding…" : "→ Grocery",
+          variant: "accent",
+          icon: "🛒",
+          disabled: groceryLoading,
+          onClick: async () => {
+            setGroceryLoading(true);
+            try { await onAddMealPlanToGrocery(); } finally { setGroceryLoading(false); }
+          },
+          className: "btn-sm",
+        }),
+      ),
 
       Object.entries(groupByType(mealPlan)).map(([type, meals]) =>
         h("div", { key: type, style: { marginBottom: 14 } },

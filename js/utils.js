@@ -55,6 +55,9 @@ window.APP.utils = {
       "fresh", "frozen", "boneless", "skinless", "chopped", "diced", "minced",
       "sliced", "shredded", "grated", "large", "small", "medium", "extra",
       "ground", "whole", "raw", "cooked", "ripe", "organic",
+      "hard", "boiled", "hardboiled", "soft", "scrambled", "fried", "poached",
+      "beaten", "melted", "softened", "room", "temperature", "peeled", "trimmed",
+      "cubed", "crushed", "packed", "unsalted", "salted",
     ];
     let n = name.toLowerCase().replace(/[,.]/g, " ").trim();
     n = n.split(/\s+/).filter(w => w && !STRIP_WORDS.includes(w)).join(" ");
@@ -88,10 +91,10 @@ window.APP.utils = {
     const { normalizeIngName, convertUnit } = window.APP.utils;
     const groups = {};
     items.forEach(item => {
-      const key = normalizeIngName(item.name);
+      const key = item.ingredientId || normalizeIngName(item.name);
       if (!key) return;
       if (!groups[key]) {
-        groups[key] = { name: item.name, section: item.section, amount: 0, unit: item.unit || "", notes: [], hasAmount: false };
+        groups[key] = { name: item.name, ingredientId: item.ingredientId || null, section: item.section, amount: 0, unit: item.unit || "", notes: [], hasAmount: false };
       }
       const g = groups[key];
       const amt = parseFloat(item.amount);
@@ -116,6 +119,38 @@ window.APP.utils = {
       }
     });
     return Object.values(groups);
+  },
+
+  // ── Standard ingredient list matching ─────────────────────────────────────────
+  // Finds a standard ingredient whose normalized name matches. Used to auto-link
+  // AI-generated ingredients to your standard list on confident (exact normalized) matches.
+  matchIngredientId(name, standardList = []) {
+    const { normalizeIngName } = window.APP.utils;
+    const key = normalizeIngName(name);
+    if (!key) return null;
+    const found = standardList.find(i => normalizeIngName(i.name) === key);
+    return found ? found.id : null;
+  },
+
+  // Two ingredient-bearing items (recipe ingredient / pantry item / grocery item)
+  // are "the same" if they share a linked standard ingredientId, or — for anything
+  // not yet linked — if their names normalize to the same thing (fallback).
+  sameIngredient(a, b) {
+    const { normalizeIngName } = window.APP.utils;
+    if (a.ingredientId && b.ingredientId) return a.ingredientId === b.ingredientId;
+    return normalizeIngName(a.name) === normalizeIngName(b.name);
+  },
+
+  // Auto-links a freshly AI-generated ingredient list against your standard list.
+  // Confident (exact normalized) matches get linked automatically; anything without
+  // a match is left unlinked (ingredientId: null) so it shows up flagged for review.
+  linkIngredients(rawIngredients = [], standardList = []) {
+    const { matchIngredientId } = window.APP.utils;
+    return rawIngredients.map(ing => {
+      const id  = matchIngredientId(ing.name, standardList);
+      const std = id ? standardList.find(s => s.id === id) : null;
+      return { ...ing, ingredientId: id || null, name: std ? std.name : ing.name };
+    });
   },
 
   // ── Rolling 30-day cost log ──────────────────────────────────────────────────

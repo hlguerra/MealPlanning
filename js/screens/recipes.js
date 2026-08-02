@@ -7,7 +7,7 @@ const { categorize } = window.APP;
 const { COURSES, PROTEINS, APPLIANCES, SECTIONS } = window.APP;
 
 // ── RecipesScreen ─────────────────────────────────────────────────────────────
-window.APP.RecipesScreen = function({ recipes, setRecipes, onAddToMealPlan, onAddToGrocery, requestPin, addCost, showBanner, knownIngredientNames }) {
+window.APP.RecipesScreen = function({ recipes, setRecipes, onAddToMealPlan, onAddToGrocery, requestPin, addCost, showBanner, knownIngredientNames, ingredients, addNewIngredient }) {
   const [view,   setView]   = useState("list");
   const [active, setActive] = useState(null);
   const [search, setSearch] = useState("");
@@ -90,7 +90,7 @@ URL: ${importUrl.trim()}`,
       });
       const text   = extractText(data.content);
       const parsed = parseJSON(text);
-      parsed.ingredients = (parsed.ingredients || []).map(ing => ({
+      parsed.ingredients = window.APP.utils.linkIngredients(parsed.ingredients || [], ingredients).map(ing => ({
         ...ing,
         section: ing.section && ing.section !== "Other" ? ing.section : categorize(ing.name),
       }));
@@ -107,8 +107,8 @@ URL: ${importUrl.trim()}`,
 
   // ── Render ─────────────────────────────────────────────────────────────────
   if (view === "detail" && active) return h(RecipeDetail, { recipe: active, onBack: closeDetail, onEdit: () => setView("edit"), onDelete: () => deleteRecipe(active.id), onHide: () => toggleHideRecipe(active.id), onAddToMealPlan, onAddToGrocery, showBanner });
-  if (view === "edit"   && active) return h(RecipeForm,   { recipe: active, onSave: saveRecipe, onCancel: closeDetail, knownIngredientNames });
-  if (view === "new")              return h(RecipeForm,   { recipe: null,   onSave: saveRecipe, onCancel: () => setView("list"), knownIngredientNames });
+  if (view === "edit"   && active) return h(RecipeForm,   { recipe: active, onSave: saveRecipe, onCancel: closeDetail, knownIngredientNames, ingredients, addNewIngredient });
+  if (view === "new")              return h(RecipeForm,   { recipe: null,   onSave: saveRecipe, onCancel: () => setView("list"), knownIngredientNames, ingredients, addNewIngredient });
 
   return h("div", null,
     h(SectionHeader, {
@@ -268,7 +268,7 @@ function RecipeDetail({ recipe, onBack, onEdit, onDelete, onHide, onAddToMealPla
       ),
       (recipe.ingredients || []).map(ing =>
         h("div", { key: ing.id, className: "flex-between divider", style: { padding: "6px 0", fontSize: 14 } },
-          h("span", null, ing.name),
+          h("span", null, ing.name, ing.description ? h("span", { className: "muted" }, ` (${ing.description})`) : null),
           h("span", { className: "muted font-bold" }, fmtIngredient(scaleAmt(ing.amount, recipe.servings, servings), ing.unit)),
         )
       ),
@@ -318,7 +318,7 @@ function RecipeDetail({ recipe, onBack, onEdit, onDelete, onHide, onAddToMealPla
 }
 
 // ── RecipeForm ────────────────────────────────────────────────────────────────
-function RecipeForm({ recipe, onSave, onCancel, knownIngredientNames }) {
+function RecipeForm({ recipe, onSave, onCancel, knownIngredientNames, ingredients, addNewIngredient }) {
   const blank = { name: "", course: "Main", proteins: [], tags: [], appliances: [], servings: 2, prepTime: 0, cookTime: 0, photo: "", estimatedCost: 0, ingredients: [], steps: [""], notes: "", nutrition: {} };
   const [form, setForm] = useState(recipe ? { ...blank, ...recipe } : blank);
   const [tagInput, setTagInput] = useState("");
@@ -326,9 +326,9 @@ function RecipeForm({ recipe, onSave, onCancel, knownIngredientNames }) {
 
   const upd = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-  const addIng     = ()         => upd("ingredients", [...form.ingredients, { id: uid(), name: "", amount: 1, unit: "", section: "Other" }]);
+  const addIng     = ()         => upd("ingredients", [...form.ingredients, { id: uid(), ingredientId: null, name: "", description: "", amount: 1, unit: "", section: "Other" }]);
   const updIngKey  = (id, k, v) => upd("ingredients", form.ingredients.map(i => i.id === id ? { ...i, [k]: v } : i));
-  const updIngName = (id, v)    => upd("ingredients", form.ingredients.map(i => i.id === id ? { ...i, name: v, section: categorize(v) } : i));
+  const selectIng  = (id, ing)  => upd("ingredients", form.ingredients.map(i => i.id === id ? { ...i, ingredientId: ing.id, name: ing.name, section: categorize(ing.name) } : i));
   const remIng     = id         => upd("ingredients", form.ingredients.filter(i => i.id !== id));
 
   const addStep  = ()       => upd("steps", [...form.steps, ""]);
@@ -387,12 +387,13 @@ function RecipeForm({ recipe, onSave, onCancel, knownIngredientNames }) {
       (form.ingredients || []).map(ing =>
         h("div", { key: ing.id },
           h("div", { className: "ing-row" },
-            h(window.APP.IngredientAutocomplete, {
-              value: ing.name,
-              onChange: v => updIngName(ing.id, v),
-              knownNames: knownIngredientNames || [],
-              placeholder: "Name",
-              style: { flex: 1 },
+            h(window.APP.IngredientSelect, {
+              ingredients: ingredients || [],
+              selectedId: ing.ingredientId,
+              onSelect: sel => selectIng(ing.id, sel),
+              onAddNew: name => addNewIngredient(name),
+              flagged: !ing.ingredientId && !!ing.name,
+              placeholder: "Search ingredient…",
             }),
             h("input", { className: "form-input-sm", style: { width: 56 }, value: ing.amount, onChange: e => updIngKey(ing.id, "amount", e.target.value), placeholder: "Amt", type: "number" }),
             h("select", {
@@ -405,6 +406,14 @@ function RecipeForm({ recipe, onSave, onCancel, knownIngredientNames }) {
             ),
             h("button", { onClick: () => remIng(ing.id), style: { background: "none", border: "none", cursor: "pointer", color: "#C0392B", fontSize: 18 } }, "×"),
           ),
+          !ing.ingredientId && ing.name && h("div", { className: "text-xs", style: { color: "#B8860B", marginTop: -2, marginBottom: 2 } }, `⚠ "${ing.name}" isn't linked to your standard ingredient list yet — search above to link or add it`),
+          h("input", {
+            className: "form-input-sm",
+            style: { width: "100%", marginBottom: 4, fontStyle: "italic" },
+            value: ing.description || "",
+            onChange: e => updIngKey(ing.id, "description", e.target.value),
+            placeholder: "Description (optional) — e.g. hard boiled, room temperature",
+          }),
           h("div", { className: "ing-section-hint" }, `📂 ${ing.section}`),
         )
       ),

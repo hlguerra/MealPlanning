@@ -7,8 +7,8 @@ const { categorize } = window.APP;
 const { SECTIONS } = window.APP;
 
 // ── PantryScreen ──────────────────────────────────────────────────────────────
-window.APP.PantryScreen = function({ pantry, setPantry, addCost, knownIngredientNames }) {
-  const [input,   setInput]   = useState("");
+window.APP.PantryScreen = function({ pantry, setPantry, addCost, knownIngredientNames, ingredients, addNewIngredient }) {
+  const [selectedIng, setSelectedIng] = useState(null); // { id, name }
   const [amount,  setAmount]  = useState("");
   const [unit,    setUnit]    = useState("");
   const [suggest, setSuggest] = useState([]);
@@ -18,15 +18,14 @@ window.APP.PantryScreen = function({ pantry, setPantry, addCost, knownIngredient
 
   // ── Item actions (no PIN required) ─────────────────────────────────────────
   const addItem = () => {
-    const trimmed = input.trim();
-    if (!trimmed) return;
-    const section = categorize(trimmed);
+    if (!selectedIng) return;
+    const section = categorize(selectedIng.name);
     setPantry(p => [...p, {
-      id: uid(), name: trimmed, section,
+      id: uid(), name: selectedIng.name, ingredientId: selectedIng.id, section,
       amount: amount.trim() ? +amount : "",
       unit,
     }]);
-    setInput(""); setAmount(""); setUnit("");
+    setSelectedIng(null); setAmount(""); setUnit("");
   };
 
   const removeItem = id => setPantry(p => p.filter(i => i.id !== id));
@@ -72,12 +71,12 @@ Return ONLY a valid JSON array, no markdown fences:
     // ── Add item ──────────────────────────────────────────────────────────────
     h(Card, { style: { marginBottom: 16 } },
       h("div", { className: "flex gap-8" },
-        h(window.APP.IngredientAutocomplete, {
-          value: input,
-          onChange: setInput,
-          knownNames: knownIngredientNames || [],
+        h(window.APP.IngredientSelect, {
+          ingredients: ingredients || [],
+          selectedId: selectedIng?.id,
+          onSelect: sel => setSelectedIng(sel),
+          onAddNew: name => addNewIngredient(name),
           placeholder: "Add item… (e.g. chicken thighs, rice)",
-          onEnter: addItem,
         }),
         h("input", {
           className: "form-input-sm",

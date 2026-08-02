@@ -111,6 +111,7 @@ window.APP.COST_PER_CALL = {
   priceSearch: 0.02,   // ~6K input tokens (no web search)
   priceList:   0.03,   // ~10K input tokens (no web search)
   recipeGen:   0.02,   // ~6K input tokens (generate recipe from meal name)
+  receiptScan: 0.05,   // ~image tokens + prompt; varies with receipt length/photo size
 };
 
 // ── Default app settings ──────────────────────────────────────────────────────

@@ -28,6 +28,7 @@ function App() {
   const [spending,     setSpending]     = usePersist("hmp_spending",     []);
   const [cookHistory,  setCookHistory]  = usePersist("hmp_cookhistory",  []);
   const [ingredients,  setIngredients]  = usePersist("hmp_ingredients",  []); // standard ingredient list
+  const [priceHistory, setPriceHistory] = usePersist("hmp_pricehistory", []); // receipt-derived price history, rolling 365 days
 
   // ── In-memory search state (persists across navigation, cleared on app close) 
   const [priceSearchResults, setPriceSearchResults] = useState(null);
@@ -61,6 +62,7 @@ function App() {
       setMyAppliances,
       setSettings,
       setIngredients,
+      setPriceHistory,
     });
 
     if (syncFn) setSyncNow(() => syncFn);
@@ -81,8 +83,9 @@ function App() {
       myAppliances,
       settings,
       ingredients,
+      priceHistory,
     });
-  }, [groceryList, recipes, costLog, spending, cookHistory, mealPlan, pantry, staples, myAppliances, settings, ingredients, settings.householdId]);
+  }, [groceryList, recipes, costLog, spending, cookHistory, mealPlan, pantry, staples, myAppliances, settings, ingredients, priceHistory, settings.householdId]);
 
   // ── Add recipe to meal plan ──────────────────────────────────────────────────
   const addToMealPlan = useCallback(recipe => {
@@ -125,6 +128,19 @@ function App() {
     showBanner("✓ Ingredients added to grocery list", "success");
     setScreen("grocery");
   }, [setGroceryList, showBanner]);
+
+  // ── Save reviewed receipt items to price history ─────────────────────────────
+  // Only called after the person confirms/links each item — never auto-saved.
+  const savePriceHistory = useCallback((items, store, date) => {
+    const { rolling365 } = window.APP.utils;
+    const entries = items.map(it => ({
+      id: uid(), ingredientId: it.ingredientId, amount: +it.amount, unit: it.unit,
+      price: +it.price, store: store || "", date: date || new Date().toISOString().split("T")[0],
+      ts: Date.now(),
+    }));
+    setPriceHistory(log => rolling365([...log, ...entries]));
+    showBanner(`✓ Saved prices for ${entries.length} item${entries.length === 1 ? "" : "s"}`, "success");
+  }, [setPriceHistory, showBanner]);
 
   // ── Standard ingredient list ─────────────────────────────────────────────────
   const addNewIngredient = useCallback(name => {
@@ -332,6 +348,7 @@ function App() {
       knownIngredientNames,
       ingredients,
       addNewIngredient,
+      priceHistory,
     }),
 
     plan: h(MealPlanScreen, {
@@ -368,6 +385,8 @@ function App() {
       knownIngredientNames,
       ingredients,
       addNewIngredient,
+      priceHistory,
+      onSavePriceHistory: savePriceHistory,
     }),
 
     pantry: h(PantryScreen, {

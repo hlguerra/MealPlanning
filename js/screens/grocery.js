@@ -7,12 +7,50 @@ const { categorize } = window.APP;
 const { SECTIONS, FLYER_LINKS } = window.APP;
 
 // ── GroceryScreen ─────────────────────────────────────────────────────────────
-window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setStaples, settings, spending, onRecordPurchase, addCost, showBanner, priceListResults, setPriceListResults, knownIngredientNames, onCompleteList, ingredients, addNewIngredient }) {
+window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setStaples, settings, spending, onRecordPurchase, addCost, showBanner, priceListResults, setPriceListResults, knownIngredientNames, onCompleteList, ingredients, addNewIngredient, priceHistory, onSavePriceHistory }) {
   const [selectedIng, setSelectedIng] = useState(null); // { id, name }
   const [qty,         setQty]         = useState("");
   const [unit,        setUnit]        = useState("");
   const [showStaples, setShowStaples] = useState(false);
   const { UNITS } = window.APP;
+
+  // Receipt scanning state
+  const [scanLoading, setScanLoading] = useState(false);
+  const [scanError,   setScanError]   = useState("");
+  const [receiptItems, setReceiptItems] = useState(null); // array under review, or null when not reviewing
+  const [receiptStore, setReceiptStore] = useState("");
+  const [receiptDate,  setReceiptDate]  = useState(new Date().toISOString().split("T")[0]);
+  const fileInputRef = React.useRef(null);
+
+  const handleReceiptFile = async e => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file later
+    if (!file) return;
+    setScanLoading(true); setScanError("");
+    try {
+      const { resizeImageToBase64, scanReceipt } = window.APP.utils;
+      const base64 = await resizeImageToBase64(file);
+      const items  = await scanReceipt(base64);
+      addCost("receiptScan");
+      setReceiptItems((items || []).map(it => ({
+        id: window.APP.utils.uid(), name: it.name || "", ingredientId: null,
+        amount: it.amount || 1, unit: it.unit || "count", price: it.price || 0,
+      })));
+    } catch {
+      setScanError("Could not read that receipt. Try a clearer photo, or add prices manually.");
+    }
+    setScanLoading(false);
+  };
+
+  const updReceiptItem = (id, patch) => setReceiptItems(items => items.map(it => it.id === id ? { ...it, ...patch } : it));
+  const removeReceiptItem = id => setReceiptItems(items => items.filter(it => it.id !== id));
+
+  const confirmReceipt = () => {
+    const ready = (receiptItems || []).filter(it => it.ingredientId && it.amount && it.unit && it.price >= 0);
+    if (!ready.length) { showBanner("Link at least one item before saving.", "error"); return; }
+    onSavePriceHistory(ready, receiptStore, receiptDate);
+    setReceiptItems(null); setReceiptStore("");
+  };
 
   // Purchase recording state
   const [showPurchase,   setShowPurchase]   = useState(false);
@@ -101,6 +139,55 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
 
     // Sync indicator
     h(SyncIndicator),
+
+    // ── Scan receipt ──────────────────────────────────────────────────────────
+    h("input", {
+      ref: fileInputRef, type: "file", accept: "image/*", capture: "environment",
+      style: { display: "none" }, onChange: handleReceiptFile,
+    }),
+    h(Btn, {
+      label: scanLoading ? "Reading receipt…" : "📷 Scan Receipt to Track Prices",
+      variant: "sky",
+      onClick: () => fileInputRef.current?.click(),
+      disabled: scanLoading,
+      className: "btn-full",
+      style: { marginBottom: scanError ? 6 : 16 },
+    }),
+    scanError && h("div", { className: "warn text-sm", style: { marginBottom: 16 } }, scanError),
+
+    receiptItems && h(Card, { style: { marginBottom: 16, border: "2px solid #6FA8C4" } },
+      h("div", { className: "font-bold font-serif mb-12", style: { fontSize: 15 } }, `Review Receipt (${receiptItems.length} items)`),
+      h("div", { className: "text-xs muted", style: { marginBottom: 10 } }, "Link each item to a standard ingredient to save its price. Unlinked items are skipped."),
+      h("div", { className: "flex gap-8", style: { marginBottom: 10 } },
+        h("input", { className: "form-input-sm", style: { flex: 1 }, value: receiptStore, onChange: e => setReceiptStore(e.target.value), placeholder: "Store (optional)" }),
+        h("input", { className: "form-input-sm", type: "date", style: { flexShrink: 0 }, value: receiptDate, onChange: e => setReceiptDate(e.target.value) }),
+      ),
+      receiptItems.map(it =>
+        h("div", { key: it.id, style: { display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", padding: "6px 0", borderBottom: "1px solid #F0E6D3" } },
+          h(window.APP.IngredientSelect, {
+            ingredients: ingredients || [],
+            selectedId: it.ingredientId,
+            onSelect: sel => updReceiptItem(it.id, { ingredientId: sel.id, name: sel.name }),
+            onAddNew: name => addNewIngredient(name),
+            flagged: !it.ingredientId,
+            placeholder: it.name || "Search ingredient…",
+          }),
+          h("input", { className: "form-input-sm", style: { width: 50 }, type: "number", value: it.amount, onChange: e => updReceiptItem(it.id, { amount: e.target.value }), placeholder: "Amt" }),
+          h("select", {
+            className: "form-input-sm", style: { width: 68 },
+            value: it.unit, onChange: e => updReceiptItem(it.id, { unit: e.target.value }),
+          },
+            UNITS.map(u => h("option", { key: u, value: u }, u)),
+          ),
+          h("input", { className: "form-input-sm", style: { width: 60 }, type: "number", step: "0.01", value: it.price, onChange: e => updReceiptItem(it.id, { price: e.target.value }), placeholder: "$" }),
+          h("button", { onClick: () => removeReceiptItem(it.id), style: { background: "none", border: "none", cursor: "pointer", color: "#C0392B", fontSize: 16 } }, "×"),
+        )
+      ),
+      h("div", { className: "flex gap-8", style: { marginTop: 12 } },
+        h(Btn, { label: "Save Prices", variant: "accent", onClick: confirmReceipt, style: { flex: 1 } }),
+        h(Btn, { label: "Cancel", variant: "ghost", onClick: () => setReceiptItems(null) }),
+      ),
+    ),
 
     // Add item — with optional quantity
     h(Card, { style: { marginBottom: 16 } },

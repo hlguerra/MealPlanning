@@ -106,7 +106,7 @@ URL: ${importUrl.trim()}`,
   };
 
   // ── Render ─────────────────────────────────────────────────────────────────
-  if (view === "detail" && active) return h(RecipeDetail, { recipe: active, onBack: closeDetail, onEdit: () => setView("edit"), onDelete: () => deleteRecipe(active.id), onHide: () => toggleHideRecipe(active.id), onAddToMealPlan, onAddToGrocery, showBanner });
+  if (view === "detail" && active) return h(RecipeDetail, { recipe: active, onBack: closeDetail, onEdit: () => setView("edit"), onDelete: () => deleteRecipe(active.id), onHide: () => toggleHideRecipe(active.id), onAddToMealPlan, onAddToGrocery, showBanner, priceHistory });
   if (view === "edit"   && active) return h(RecipeForm,   { recipe: active, onSave: saveRecipe, onCancel: closeDetail, knownIngredientNames, ingredients, addNewIngredient });
   if (view === "new")              return h(RecipeForm,   { recipe: null,   onSave: saveRecipe, onCancel: () => setView("list"), knownIngredientNames, ingredients, addNewIngredient });
 
@@ -226,9 +226,12 @@ function RecipeCard({ recipe: r, onClick, onAddToMealPlan, onAddToGrocery, showB
 }
 
 // ── RecipeDetail ──────────────────────────────────────────────────────────────
-function RecipeDetail({ recipe, onBack, onEdit, onDelete, onHide, onAddToMealPlan, onAddToGrocery, showBanner }) {
+function RecipeDetail({ recipe, onBack, onEdit, onDelete, onHide, onAddToMealPlan, onAddToGrocery, showBanner, priceHistory }) {
   const [servings, setServings] = useState(recipe.servings || 2);
   const ratio = servings / (recipe.servings || 1);
+  const realCost = window.APP.utils.estimateRecipeCost(recipe, priceHistory || []);
+  const displayCost = realCost.coverage === "full" ? realCost.cost : recipe.estimatedCost;
+  const costLabel = realCost.coverage === "full" ? `${fmt$(displayCost)} 📊` : fmt$(displayCost);
 
   return h("div", null,
     h("div", { className: "flex-center gap-12", style: { marginBottom: 20 } },
@@ -242,13 +245,14 @@ function RecipeDetail({ recipe, onBack, onEdit, onDelete, onHide, onAddToMealPla
     ),
 
     h("div", { className: "meta-grid" },
-      ...[["⏱ Prep", `${recipe.prepTime || 0}m`], ["🔥 Cook", `${recipe.cookTime || 0}m`], ["💰 Cost", fmt$(recipe.estimatedCost)]].map(([l, v]) =>
+      ...[["⏱ Prep", `${recipe.prepTime || 0}m`], ["🔥 Cook", `${recipe.cookTime || 0}m`], ["💰 Cost", costLabel]].map(([l, v]) =>
         h(Card, { key: l, className: "meta-cell" },
           h("div", { className: "meta-label" }, l),
           h("div", { className: "meta-value" }, v),
         )
       ),
     ),
+    realCost.coverage === "partial" && h("div", { className: "text-xs muted", style: { marginTop: -10, marginBottom: 16 } }, `📊 Tracked price data available for ${realCost.pricedCount} of ${realCost.quantifiableCount} ingredients — cost above is still Claude's estimate`),
 
     h("div", { className: "flex wrap gap-6", style: { marginBottom: 16 } },
       recipe.course && h(Tag, { label: recipe.course, color: "#E8EEF8", textColor: "#2A6A9E" }),
@@ -406,7 +410,7 @@ function RecipeForm({ recipe, onSave, onCancel, knownIngredientNames, ingredient
             ),
             h("button", { onClick: () => remIng(ing.id), style: { background: "none", border: "none", cursor: "pointer", color: "#C0392B", fontSize: 18 } }, "×"),
           ),
-          !ing.ingredientId && ing.name && h("div", { className: "text-xs", style: { color: "#B8860B", marginTop: -2, marginBottom: 2 } }, `⚠ "${ing.name}" isn't linked to your standard ingredient list yet — search above to link or add it`),
+          !ing.ingredientId && ing.name && h("div", { className: "text-xs", style: { color: "#B8860B", marginTop: -2, marginBottom: 2 } }, `⚠ "${ing.name}${ing.amount ? ` ${ing.amount}${ing.unit ? " " + ing.unit : ""}` : ""}" isn't linked to your standard ingredient list yet — search above to link or add it`),
           h("input", {
             className: "form-input-sm",
             style: { width: "100%", marginBottom: 4, fontStyle: "italic" },

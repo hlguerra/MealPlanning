@@ -28,14 +28,14 @@ async function pullFromFirebase(householdId, callbacks) {
     setGroceryList, setRecipes, setCostLog,
     setSpending, setCookHistory, setMealPlan,
     setPantry, setStaples, setMyAppliances, setSettings,
-    setIngredients,
+    setIngredients, setPriceHistory,
   } = callbacks;
   const fb = window.APP.firebase;
 
   setStatus({ syncing: true, error: null });
 
   try {
-    const [grocery, recipes, costlog, spending, cookhistory, mealplan, pantry, staples, appliances, settings, ingredients] = await Promise.all([
+    const [grocery, recipes, costlog, spending, cookhistory, mealplan, pantry, staples, appliances, settings, ingredients, priceHistory] = await Promise.all([
       fb.readGrocery(householdId),
       fb.readRecipes(householdId),
       fb.readCostLog(householdId),
@@ -47,6 +47,7 @@ async function pullFromFirebase(householdId, callbacks) {
       fb.readAppliances(householdId),
       fb.readSettings(householdId),
       fb.readIngredients(householdId),
+      fb.readPriceHistory(householdId),
     ]);
 
     setGroceryList(grocery);
@@ -60,6 +61,7 @@ async function pullFromFirebase(householdId, callbacks) {
     if (setMyAppliances && appliances)       setMyAppliances(appliances);
     if (setSettings && settings)             setSettings(s => ({ ...s, ...settings }));
     if (setIngredients)   setIngredients(ingredients || []);
+    if (setPriceHistory)  setPriceHistory(priceHistory || []);
 
     setStatus({ syncing: false, lastSynced: new Date(), error: null });
   } catch (e) {
@@ -70,7 +72,7 @@ async function pullFromFirebase(householdId, callbacks) {
 
 // ── Push to Firebase ──────────────────────────────────────────────────────────
 async function pushToFirebase(householdId, data) {
-  const { groceryList, recipes, costLog, spending, cookHistory, mealPlan, pantry, staples, myAppliances, settings, ingredients } = data;
+  const { groceryList, recipes, costLog, spending, cookHistory, mealPlan, pantry, staples, myAppliances, settings, ingredients, priceHistory } = data;
   const fb = window.APP.firebase;
 
   setStatus({ syncing: true, error: null });
@@ -88,6 +90,7 @@ async function pushToFirebase(householdId, data) {
       fb.writeAppliances(householdId, myAppliances || []),
       fb.writeSettings(householdId, settings || {}),
       fb.writeIngredients(householdId, ingredients || []),
+      fb.writePriceHistory(householdId, priceHistory || []),
     ]);
     setStatus({ syncing: false, lastSynced: new Date(), error: null });
   } catch (e) {

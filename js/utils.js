@@ -153,6 +153,119 @@ window.APP.utils = {
     });
   },
 
+  // ── Rolling 365-day price history ─────────────────────────────────────────────
+  // Filters price history to the last year, so it never grows unbounded.
+  rolling365(log = []) {
+    const cutoff = Date.now() - 365 * 24 * 60 * 60 * 1000;
+    return log.filter(e => e.ts > cutoff);
+  },
+
+  // ── Average unit price ────────────────────────────────────────────────────────
+  // Blended average price-per-base-unit for a standard ingredient, from purchase
+  // history. Converts each purchase's unit to a base unit (ml for volume, g for
+  // weight, count as-is) so purchases in different-sized packages still average
+  // together correctly (e.g. a gallon of milk and a quart of milk both count).
+  // Returns null if there's no usable history. Ignores entries whose unit type
+  // doesn't match the majority (rare, but keeps a mixed-up entry from skewing things).
+  avgUnitPrice(ingredientId, priceHistory = []) {
+    const UNIT_INFO = window.APP.UNIT_INFO || {};
+    const entries = priceHistory.filter(p => p.ingredientId === ingredientId && p.amount > 0 && p.unit && p.price >= 0);
+    if (!entries.length) return null;
+
+    const byType = {};
+    entries.forEach(e => {
+      const info = UNIT_INFO[e.unit];
+      if (!info) return;
+      const baseAmt = e.amount * info.toBase;
+      if (baseAmt <= 0) return;
+      (byType[info.type] = byType[info.type] || []).push(e.price / baseAmt);
+    });
+
+    const types = Object.entries(byType);
+    if (!types.length) return null;
+    const [type, prices] = types.sort((a, b) => b[1].length - a[1].length)[0]; // most-common unit type
+    const pricePerBase = prices.reduce((a, b) => a + b, 0) / prices.length;
+    return { type, pricePerBase, sampleSize: prices.length };
+  },
+
+  // ── Estimate recipe cost from real price history ──────────────────────────────
+  // Only swaps in real prices when EVERY quantifiable, linked ingredient has
+  // price history — a partial sum would understate cost and be misleading.
+  // Returns { cost, coverage: "full" | "partial" | "none", pricedCount, quantifiableCount }.
+  estimateRecipeCost(recipe, priceHistory = []) {
+    const { avgUnitPrice } = window.APP.utils;
+    const UNIT_INFO = window.APP.UNIT_INFO || {};
+    const quantifiable = (recipe.ingredients || []).filter(ing => ing.amount && ing.unit);
+    if (!quantifiable.length) return { cost: null, coverage: "none", pricedCount: 0, quantifiableCount: 0 };
+
+    let total = 0, priced = 0;
+    quantifiable.forEach(ing => {
+      if (!ing.ingredientId) return;
+      const avg = avgUnitPrice(ing.ingredientId, priceHistory);
+      if (!avg) return;
+      const info = UNIT_INFO[ing.unit];
+      if (!info || info.type !== avg.type) return; // can't convert — skip
+      total += ing.amount * info.toBase * avg.pricePerBase;
+      priced++;
+    });
+
+    const coverage = priced === 0 ? "none" : priced === quantifiable.length ? "full" : "partial";
+    return { cost: priced ? +total.toFixed(2) : null, coverage, pricedCount: priced, quantifiableCount: quantifiable.length };
+  },
+
+  // ── Receipt photo → base64 (resized client-side to control cost) ─────────────
+  resizeImageToBase64(file, maxDim = 1500, quality = 0.7) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error("Could not read image file."));
+      reader.onload = e => {
+        const img = new Image();
+        img.onerror = () => reject(new Error("Could not load image."));
+        img.onload = () => {
+          let { width, height } = img;
+          if (width > maxDim || height > maxDim) {
+            const scale = maxDim / Math.max(width, height);
+            width = Math.round(width * scale);
+            height = Math.round(height * scale);
+          }
+          const canvas = document.createElement("canvas");
+          canvas.width = width; canvas.height = height;
+          canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL("image/jpeg", quality).split(",")[1]);
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  },
+
+  // ── Scan a receipt photo for line items ───────────────────────────────────────
+  // One API call per receipt (not per item). Returns raw parsed items for review —
+  // never auto-saved, since receipt item names rarely match your standard list cleanly.
+  async scanReceipt(base64Image) {
+    const { callClaude, extractText, parseJSON } = window.APP.utils;
+    const data = await callClaude({
+      maxTokens: 1500,
+      messages: [{
+        role: "user",
+        content: [
+          { type: "image", source: { type: "base64", media_type: "image/jpeg", data: base64Image } },
+          {
+            type: "text",
+            text: `Extract every purchased grocery line item from this receipt photo. Return ONLY valid JSON, no markdown:
+[{"name":"","amount":1,"unit":"","price":0}]
+- "name": item name as printed on the receipt (abbreviated is fine)
+- "amount"/"unit": your best guess at quantity purchased. Use one of: tsp, tbsp, fl oz, cup, pint, quart, gallon, ml, l, oz, lb, g, kg, count. If unclear, use amount:1, unit:"count".
+- "price": the price paid for that line item (not a per-unit price)
+Ignore tax, subtotal, total, coupons, and non-food lines.`,
+          },
+        ],
+      }],
+    });
+    const text = extractText(data.content);
+    return parseJSON(text);
+  },
+
   // ── Rolling 30-day cost log ──────────────────────────────────────────────────
   // Filters a cost log array to only entries within the last 30 days.
   rolling30(log = []) {

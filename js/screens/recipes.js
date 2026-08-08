@@ -7,7 +7,7 @@ const { categorize } = window.APP;
 const { COURSES, PROTEINS, APPLIANCES, SECTIONS } = window.APP;
 
 // ── RecipesScreen ─────────────────────────────────────────────────────────────
-window.APP.RecipesScreen = function({ recipes, setRecipes, onAddToMealPlan, onAddToGrocery, requestPin, addCost, showBanner, knownIngredientNames, ingredients, addNewIngredient }) {
+window.APP.RecipesScreen = function({ recipes, setRecipes, onAddToMealPlan, onAddToGrocery, requestPin, addCost, showBanner, knownIngredientNames, ingredients, addNewIngredient, priceHistory }) {
   const [view,   setView]   = useState("list");
   const [active, setActive] = useState(null);
   const [search, setSearch] = useState("");

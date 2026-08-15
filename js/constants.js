@@ -112,6 +112,7 @@ window.APP.COST_PER_CALL = {
   priceList:   0.03,   // ~10K input tokens (no web search)
   recipeGen:   0.02,   // ~6K input tokens (generate recipe from meal name)
   receiptScan: 0.05,   // ~image tokens + prompt; varies with receipt length/photo size
+  tagAudit:    0.03,   // ~10K input tokens at current recipe count — scales with library size, revisit if recipes grow well past 100
 };
 
 // ── Default app settings ──────────────────────────────────────────────────────

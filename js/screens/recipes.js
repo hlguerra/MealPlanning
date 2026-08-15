@@ -1,6 +1,6 @@
 // ── js/screens/recipes.js ─────────────────────────────────────────────────────
 window.APP = window.APP || {};
-const { createElement: h, useState, useRef } = React;
+const { createElement: h, useState, useRef, useEffect } = React;
 const { Btn, Card, Tag, Input, Select, PillToggle, SectionHeader, EmptyState } = window.APP;
 const { uid, fmt$, scaleAmt, fmtIngredient, callClaude, extractText, parseJSON, toggleInArray } = window.APP.utils;
 const { categorize } = window.APP;
@@ -20,6 +20,10 @@ window.APP.RecipesScreen = function({ recipes, setRecipes, onAddToMealPlan, onAd
   const [importUrl,     setImportUrl]     = useState("");
   const [importLoading, setImportLoading] = useState(false);
   const [importError,   setImportError]   = useState("");
+  const [newTagPrompt,  setNewTagPrompt]  = useState(null); // tag just saved that's new to the whole library
+  const [auditingTag,   setAuditingTag]   = useState(null); // tag currently being AI-checked
+
+  const allTags = [...new Set(recipes.flatMap(r => r.tags || []))].sort();
 
   // ── Filtering ──────────────────────────────────────────────────────────────
   const filtered = recipes
@@ -53,12 +57,14 @@ window.APP.RecipesScreen = function({ recipes, setRecipes, onAddToMealPlan, onAd
   const closeDetail = ()  => { setView("list"); setTimeout(() => window.scrollTo(0, scrollPos.current), 40); };
 
   const saveRecipe = recipe => {
+    const newTags = (recipe.tags || []).filter(t => !allTags.includes(t));
     if (recipe.id && recipes.find(r => r.id === recipe.id)) {
       setRecipes(rs => rs.map(r => r.id === recipe.id ? recipe : r));
     } else {
       setRecipes(rs => [...rs, { ...recipe, id: uid(), createdAt: Date.now() }]);
     }
     setView("list");
+    if (newTags.length) setNewTagPrompt(newTags[0]);
   };
 
   const deleteRecipe = id => requestPin(() => {
@@ -107,10 +113,18 @@ URL: ${importUrl.trim()}`,
 
   // ── Render ─────────────────────────────────────────────────────────────────
   if (view === "detail" && active) return h(RecipeDetail, { recipe: active, onBack: closeDetail, onEdit: () => setView("edit"), onDelete: () => deleteRecipe(active.id), onHide: () => toggleHideRecipe(active.id), onAddToMealPlan, onAddToGrocery, showBanner, priceHistory });
-  if (view === "edit"   && active) return h(RecipeForm,   { recipe: active, onSave: saveRecipe, onCancel: closeDetail, knownIngredientNames, ingredients, addNewIngredient });
-  if (view === "new")              return h(RecipeForm,   { recipe: null,   onSave: saveRecipe, onCancel: () => setView("list"), knownIngredientNames, ingredients, addNewIngredient });
+  if (view === "edit"   && active) return h(RecipeForm,   { recipe: active, onSave: saveRecipe, onCancel: closeDetail, knownIngredientNames, ingredients, addNewIngredient, allTags });
+  if (view === "new")              return h(RecipeForm,   { recipe: null,   onSave: saveRecipe, onCancel: () => setView("list"), knownIngredientNames, ingredients, addNewIngredient, allTags });
 
   return h("div", null,
+    newTagPrompt && h(Card, { style: { marginBottom: 16, border: "1.5px solid #D4622A" } },
+      h("div", { className: "text-sm", style: { marginBottom: 8 } }, `🏷️ New tag "${newTagPrompt}" — check your other recipes for it?`),
+      h("div", { className: "flex gap-8" },
+        h(Btn, { label: "Check Recipes", onClick: () => { setAuditingTag(newTagPrompt); setNewTagPrompt(null); }, className: "btn-sm" }),
+        h(Btn, { label: "Not now", variant: "ghost", onClick: () => setNewTagPrompt(null), className: "btn-sm" }),
+      ),
+    ),
+    auditingTag && h(window.APP.TagAuditModal, { tag: auditingTag, recipes, setRecipes, addCost, showBanner, onClose: () => setAuditingTag(null) }),
     h(SectionHeader, {
       title: "Recipes",
       action: h("div", { className: "flex gap-8" },
@@ -322,7 +336,7 @@ function RecipeDetail({ recipe, onBack, onEdit, onDelete, onHide, onAddToMealPla
 }
 
 // ── RecipeForm ────────────────────────────────────────────────────────────────
-function RecipeForm({ recipe, onSave, onCancel, knownIngredientNames, ingredients, addNewIngredient }) {
+function RecipeForm({ recipe, onSave, onCancel, knownIngredientNames, ingredients, addNewIngredient, allTags }) {
   const blank = { name: "", course: "Main", proteins: [], tags: [], appliances: [], servings: 2, prepTime: 0, cookTime: 0, photo: "", estimatedCost: 0, ingredients: [], steps: [""], notes: "", nutrition: {} };
   const [form, setForm] = useState(recipe ? { ...blank, ...recipe } : blank);
   const [tagInput, setTagInput] = useState("");
@@ -378,9 +392,10 @@ function RecipeForm({ recipe, onSave, onCancel, knownIngredientNames, ingredient
         (form.tags || []).map(t => h(Tag, { key: t, label: t, onRemove: () => remTag(t) })),
       ),
       h("div", { className: "flex gap-8" },
-        h("input", { className: "form-input", style: { flex: 1 }, value: tagInput, onChange: e => setTagInput(e.target.value), onKeyDown: e => e.key === "Enter" && addTag(), placeholder: "Add tag (e.g. Italian, quick, spicy)…" }),
+        h("input", { className: "form-input", style: { flex: 1 }, list: "tag-suggestions", value: tagInput, onChange: e => setTagInput(e.target.value), onKeyDown: e => e.key === "Enter" && addTag(), placeholder: "Add tag (e.g. Italian, quick, spicy)…" }),
         h(Btn, { label: "Add", variant: "ghost", onClick: addTag }),
       ),
+      h("datalist", { id: "tag-suggestions" }, (allTags || []).map(t => h("option", { key: t, value: t }))),
     ),
 
     h("div", { className: "form-group" },
@@ -440,3 +455,72 @@ function RecipeForm({ recipe, onSave, onCancel, knownIngredientNames, ingredient
     h(Input, { label: "Notes", value: form.notes || "", onChange: v => upd("notes", v), multiline: true, placeholder: "Tips, variations, substitutions…" }),
   );
 }
+
+// ── TagAuditModal ─────────────────────────────────────────────────────────────
+// Reviews recipes that don't have `tag` yet and asks Claude which ones plausibly
+// fit. Shows a checklist for approval — nothing is applied until Apply is clicked.
+// Shared between the inline "new tag" prompt (RecipesScreen) and the Settings picker.
+window.APP.TagAuditModal = function({ tag, recipes, setRecipes, addCost, showBanner, onClose }) {
+  const [loading,  setLoading]  = useState(true);
+  const [error,    setError]    = useState("");
+  const [approved, setApproved] = useState({}); // recipeId -> bool
+  const [checked,  setChecked]  = useState([]); // recipes Claude suggested
+
+  useEffect(() => {
+    let cancelled = false;
+    const candidates = recipes.filter(r => !(r.tags || []).includes(tag));
+    if (!candidates.length) { setLoading(false); return; }
+    window.APP.utils.suggestRecipesForTag(tag, candidates)
+      .then(ids => {
+        if (cancelled) return;
+        const matches = recipes.filter(r => ids.includes(r.id));
+        setChecked(matches);
+        setApproved(Object.fromEntries(matches.map(r => [r.id, true])));
+        addCost("tagAudit");
+        setLoading(false);
+      })
+      .catch(() => { if (!cancelled) { setError("Could not run tag audit. Try again."); setLoading(false); } });
+    return () => { cancelled = true; };
+  }, [tag]);
+
+  const toggle = id => setApproved(a => ({ ...a, [id]: !a[id] }));
+
+  const apply = () => {
+    const idsToApply = Object.keys(approved).filter(id => approved[id]);
+    if (idsToApply.length) {
+      setRecipes(rs => rs.map(r => idsToApply.includes(r.id) ? { ...r, tags: [...(r.tags || []), tag] } : r));
+      showBanner(`✓ Added "${tag}" to ${idsToApply.length} recipe${idsToApply.length === 1 ? "" : "s"}`, "success");
+    }
+    onClose();
+  };
+
+  return h("div", {
+    style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 200, display: "flex", alignItems: "flex-end" },
+    onClick: onClose,
+  },
+    h("div", {
+      style: { background: "#FFF8F0", borderRadius: "20px 20px 0 0", width: "100%", maxHeight: "80vh", overflowY: "auto", padding: "20px 16px 32px" },
+      onClick: e => e.stopPropagation(),
+    },
+      h("div", { className: "flex-between", style: { marginBottom: 16 } },
+        h("div", { className: "font-bold font-serif", style: { fontSize: 17 } }, `🏷️ Tag audit: "${tag}"`),
+        h("button", { onClick: onClose, style: { background: "none", border: "none", fontSize: 24, cursor: "pointer", color: "#7A6A55" } }, "×"),
+      ),
+      loading && h("div", { className: "muted text-sm", style: { textAlign: "center", padding: 24 } }, "✨ Checking your recipes…"),
+      error   && h("div", { className: "warn text-sm" }, error),
+      !loading && !error && checked.length === 0 && h("div", { className: "muted text-sm", style: { textAlign: "center", padding: 24 } }, "No recipes found that seem to fit this tag."),
+      !loading && !error && checked.length > 0 && h(React.Fragment, null,
+        h("div", { className: "muted text-sm", style: { marginBottom: 12 } }, "Uncheck any that don't fit, then apply:"),
+        h(Card, { style: { marginBottom: 16 } },
+          checked.map(r =>
+            h("label", { key: r.id, className: "flex-center gap-10 divider", style: { padding: "8px 0", cursor: "pointer" } },
+              h("input", { type: "checkbox", checked: !!approved[r.id], onChange: () => toggle(r.id), style: { width: 16, height: 16, accentColor: "#D4622A", cursor: "pointer" } }),
+              h("span", { style: { fontSize: 14 } }, r.name),
+            )
+          ),
+        ),
+        h(Btn, { label: `Apply to ${Object.values(approved).filter(Boolean).length} recipe${Object.values(approved).filter(Boolean).length === 1 ? "" : "s"}`, onClick: apply, className: "btn-full" }),
+      ),
+    ),
+  );
+};

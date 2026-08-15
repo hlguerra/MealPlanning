@@ -266,6 +266,33 @@ Ignore tax, subtotal, total, coupons, and non-food lines.`,
     return parseJSON(text);
   },
 
+  // ── AI tag audit ──────────────────────────────────────────────────────────────
+  // Given a tag and a list of candidate recipes (usually ones not already carrying
+  // that tag), asks Claude which ones plausibly fit. Returns an array of recipe IDs —
+  // suggestions only, never auto-applied. Caller shows a checklist for approval.
+  async suggestRecipesForTag(tag, candidates = []) {
+    const { callClaude, extractText, parseJSON } = window.APP.utils;
+    if (!candidates.length) return [];
+    const summary = candidates.map(r => ({
+      id: r.id,
+      name: r.name,
+      course: r.course,
+      proteins: r.proteins || [],
+      tags: r.tags || [],
+      ingredients: (r.ingredients || []).map(i => i.name),
+    }));
+    const data = await callClaude({
+      maxTokens: 1000,
+      messages: [{
+        role: "user",
+        content: `Given this tag: "${tag}", and this list of recipes, return the "id" of every recipe that plausibly fits this tag based on its name, ingredients, course, and proteins. Return ONLY a valid JSON array of id strings, no markdown. If none fit, return [].
+Recipes: ${JSON.stringify(summary)}`,
+      }],
+    });
+    const text = extractText(data.content);
+    return parseJSON(text);
+  },
+
   // ── Rolling 30-day cost log ──────────────────────────────────────────────────
   // Filters a cost log array to only entries within the last 30 days.
   rolling30(log = []) {

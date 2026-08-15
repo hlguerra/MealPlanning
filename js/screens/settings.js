@@ -6,7 +6,7 @@ const { fmt$, generateHouseholdId } = window.APP.utils;
 const { MEAL_TYPES, MEAL_ICONS, PROTEINS, APPLIANCES } = window.APP;
 
 // ── SettingsScreen ────────────────────────────────────────────────────────────
-window.APP.SettingsScreen = function({ settings, saveSettings, myAppliances, setMyAppliances, costTotal, requestPin, showBanner }) {
+window.APP.SettingsScreen = function({ settings, saveSettings, myAppliances, setMyAppliances, costTotal, requestPin, showBanner, recipes, setRecipes, addCost }) {
   const [form,       setForm]       = useState({ ...settings });
   const [saved,      setSaved]      = useState(false);
   const [newPin1,    setNewPin1]    = useState("");
@@ -18,6 +18,10 @@ window.APP.SettingsScreen = function({ settings, saveSettings, myAppliances, set
   const [joinPin,    setJoinPin]    = useState("");
   const [joinMsg,    setJoinMsg]    = useState("");
   const [newKeyword, setNewKeyword] = useState("");
+  const [tagAuditInput, setTagAuditInput] = useState("");
+  const [auditingTag,   setAuditingTag]   = useState(null);
+
+  const allTags = [...new Set((recipes || []).flatMap(r => r.tags || []))].sort();
 
   const upd = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -261,6 +265,29 @@ window.APP.SettingsScreen = function({ settings, saveSettings, myAppliances, set
           )
         ),
       ),
+    ),
+
+    // ── Tag audit ─────────────────────────────────────────────────────────────
+    h(Card, { style: { marginBottom: 16 } },
+      h("div", { className: "font-bold font-serif mb-4", style: { fontSize: 15 } }, "🏷️ Tag Audit"),
+      h("div", { className: "muted text-sm", style: { marginBottom: 12 } }, "Pick a tag (or type a new one) and Claude will suggest which recipes should have it — you approve before anything's applied."),
+      h("div", { className: "flex gap-8" },
+        h("input", {
+          className: "form-input", style: { flex: 1 }, list: "settings-tag-suggestions",
+          value: tagAuditInput, onChange: e => setTagAuditInput(e.target.value),
+          placeholder: "e.g. quick, kid-friendly…",
+        }),
+        h("datalist", { id: "settings-tag-suggestions" }, allTags.map(t => h("option", { key: t, value: t }))),
+        h(Btn, {
+          label: "Run Audit", variant: "ghost",
+          onClick: () => { if (tagAuditInput.trim()) setAuditingTag(tagAuditInput.trim()); },
+          disabled: !tagAuditInput.trim(),
+        }),
+      ),
+      auditingTag && h(window.APP.TagAuditModal, {
+        tag: auditingTag, recipes: recipes || [], setRecipes, addCost, showBanner,
+        onClose: () => { setAuditingTag(null); setTagAuditInput(""); },
+      }),
     ),
 
     // ── Appliances ────────────────────────────────────────────────────────────

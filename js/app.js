@@ -99,9 +99,27 @@ function App() {
         proteins:      recipe.proteins || [],
         estimatedCost: recipe.estimatedCost || 0,
         checked:       false,
+        recipeIds:     recipe.id ? [recipe.id] : [],
       },
     ]);
   }, [setMealPlan]);
+
+  // ── Link an additional saved recipe to an existing meal plan entry (combo meals) ──
+  const addRecipeToMeal = useCallback((mealId, recipe) => {
+    setMealPlan(mp => mp.map(m => {
+      if (m.id !== mealId) return m;
+      if ((m.recipeIds || []).includes(recipe.id)) return m; // already linked
+      const recipeIds = [...(m.recipeIds || []), recipe.id];
+      const names      = [...(m.name ? m.name.split(" + ") : []), recipe.name];
+      return {
+        ...m,
+        recipeIds,
+        name:          names.join(" + "),
+        estimatedCost: +((m.estimatedCost || 0) + (recipe.estimatedCost || 0)).toFixed(2),
+      };
+    }));
+    showBanner(`✓ Added ${recipe.name}`, "success");
+  }, [setMealPlan, showBanner]);
 
   // ── Add recipe ingredients to grocery list ───────────────────────────────────
   const addToGrocery = useCallback((recipe, servings) => {
@@ -173,8 +191,11 @@ function App() {
   const addMealPlanToGrocery = useCallback(async () => {
     const { combineIngredients, convertUnit } = window.APP.utils;
 
-    const matchRecipe = (list, name) => list.find(r => r.name.toLowerCase() === name.toLowerCase());
-    const missing = mealPlan.filter(m => !matchRecipe(recipes, m.name));
+    const matchRecipe  = (list, name) => list.find(r => r.name.toLowerCase() === name.toLowerCase());
+    const mealRecipes  = (m, list) => (m.recipeIds && m.recipeIds.length)
+      ? m.recipeIds.map(id => list.find(r => r.id === id)).filter(Boolean)
+      : (matchRecipe(list, m.name) ? [matchRecipe(list, m.name)] : []);
+    const missing = mealPlan.filter(m => mealRecipes(m, recipes).length === 0);
 
     let allRecipes = recipes;
     if (missing.length) {
@@ -210,8 +231,9 @@ function App() {
 
     const allIngredients = [];
     mealPlan.forEach(m => {
-      const r = matchRecipe(allRecipes, m.name);
-      if (r) (r.ingredients || []).forEach(ing => allIngredients.push({ name: ing.name, ingredientId: ing.ingredientId || null, amount: ing.amount, unit: ing.unit, section: ing.section }));
+      mealRecipes(m, allRecipes).forEach(r => {
+        (r.ingredients || []).forEach(ing => allIngredients.push({ name: ing.name, ingredientId: ing.ingredientId || null, amount: ing.amount, unit: ing.unit, section: ing.section }));
+      });
     });
     if (!allIngredients.length) {
       showBanner("No recipes with ingredients found in your meal plan.", "error");
@@ -294,15 +316,23 @@ function App() {
 
     if (removeFromPantry) {
       const { sameIngredient, convertUnit } = window.APP.utils;
-      const recipe = recipes.find(r => r.name === meal.name);
-      if (recipe) {
-        setPantry(p => p.map(pi => {
-          const used = (recipe.ingredients || []).find(ing => sameIngredient(ing, pi));
-          if (!used || !pi.amount || !pi.unit || !used.unit) return pi;
-          const usedInPantryUnit = convertUnit(used.amount, used.unit, pi.unit);
-          if (usedInPantryUnit === null) return pi; // incompatible units — leave pantry untouched
-          return { ...pi, amount: Math.max(0, +(pi.amount - usedInPantryUnit).toFixed(3)) };
-        }));
+      const linkedRecipes = (meal.recipeIds && meal.recipeIds.length)
+        ? meal.recipeIds.map(id => recipes.find(r => r.id === id)).filter(Boolean)
+        : [recipes.find(r => r.name === meal.name)].filter(Boolean);
+      if (linkedRecipes.length) {
+        setPantry(p => {
+          let updated = p;
+          linkedRecipes.forEach(recipe => {
+            updated = updated.map(pi => {
+              const used = (recipe.ingredients || []).find(ing => sameIngredient(ing, pi));
+              if (!used || !pi.amount || !pi.unit || !used.unit) return pi;
+              const usedInPantryUnit = convertUnit(used.amount, used.unit, pi.unit);
+              if (usedInPantryUnit === null) return pi;
+              return { ...pi, amount: Math.max(0, +(pi.amount - usedInPantryUnit).toFixed(3)) };
+            });
+          });
+          return updated;
+        });
       }
     }
 
@@ -360,6 +390,7 @@ function App() {
       onAddToGrocery: addToGrocery,
       onAddMealPlanToGrocery: addMealPlanToGrocery,
       onMarkAsMade:   markAsMade,
+      onAddRecipeToMeal: addRecipeToMeal,
       requestPin,
       settings,
       saveSettings,
@@ -406,6 +437,9 @@ function App() {
       costTotal: total30,
       requestPin,
       showBanner,
+      recipes,
+      setRecipes,
+      addCost,
     }),
   };
 

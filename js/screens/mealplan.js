@@ -10,6 +10,7 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
 
   const [generating, setGenerating] = useState(false);
   const [genError,   setGenError]   = useState("");
+  const [genMode,    setGenMode]    = useState("ai"); // "ai" | "recipes" — which source the generator pulls from
   const [proposed,   setProposed]   = usePersist("hmp_proposed", []);
   const [proposedAt, setProposedAt] = usePersist("hmp_proposed_at", null);
   const [locked,     setLocked]     = useState({});
@@ -77,6 +78,54 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
 
   const suggestedProteins = PROTEINS.filter(p => !recentProteins.has(p) && p !== "Other").slice(0, 3);
 
+  // ── Build proposed meals from saved recipes (no AI call — zero cost) ────────
+  const shuffle = arr => [...arr].sort(() => Math.random() - 0.5);
+
+  const buildFromRecipes = (need, excludeNames = []) => {
+    const excluded = new Set(excludeNames.map(n => n.toLowerCase()));
+    const pool = recipes.filter(r =>
+      !r.hidden &&
+      !excluded.has(r.name.toLowerCase()) &&
+      (r.mealTypes?.length ? r.mealTypes.some(t => mealTypes.includes(t)) : relevantCourses.has(r.course)) &&
+      (!proteins.length || (r.proteins || []).some(p => proteins.includes(p)))
+    );
+
+    // Favor recipes not made in the last 30 days; only dip into recently-made
+    // ones if there aren't enough fresh matches to fill the request.
+    const fresh   = shuffle(pool.filter(r => !recentlyMade.has(r.name)));
+    const recent  = shuffle(pool.filter(r => recentlyMade.has(r.name)));
+    const ordered = [...fresh, ...recent];
+
+    // Vary proteins — same "no more than 2 of the same protein" rule the AI prompt uses.
+    const picked = [];
+    const proteinCounts = {};
+    ordered.forEach(r => {
+      if (picked.length >= need) return;
+      const mainProtein = (r.proteins || [])[0];
+      if (mainProtein && (proteinCounts[mainProtein] || 0) >= 2) return;
+      picked.push(r);
+      if (mainProtein) proteinCounts[mainProtein] = (proteinCounts[mainProtein] || 0) + 1;
+    });
+    // Protein cap left slots unfilled — top up ignoring the cap rather than leave gaps.
+    if (picked.length < need) {
+      ordered.forEach(r => {
+        if (picked.length >= need || picked.includes(r)) return;
+        picked.push(r);
+      });
+    }
+
+    return picked.map(r => ({
+      id:              uid(),
+      name:            r.name,
+      mealType:        r.mealTypes?.find(t => mealTypes.includes(t)) || mealTypes[0],
+      proteins:        r.proteins || [],
+      estimatedCost:   r.estimatedCost || 0,
+      notes:           "",
+      fromSavedRecipe: true,
+      recipeIds:       [r.id], // pre-linked — "view recipe" skips the AI recipe-gen call entirely
+    }));
+  };
+
   // ── Prompt builder ──────────────────────────────────────────────────────────
   const buildPrompt = (need, excludeNames = []) => {
     const parts = [
@@ -118,6 +167,15 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
     const need          = totalNeeded(keepLocked);
     if (need <= 0) { setGenerating(false); return; }
 
+    if (genMode === "recipes") {
+      const newMeals = buildFromRecipes(need, keepLocked ? excludeNames : []);
+      setProposed([...lockedMeals, ...newMeals]);
+      setProposedAt(Date.now());
+      if (newMeals.length < need) setGenError(`Only found ${newMeals.length} of ${need} matching saved recipes — fill the rest manually, or switch to AI and regenerate the ❌ slots.`);
+      setGenerating(false);
+      return;
+    }
+
     try {
       const data     = await callClaude({ maxTokens: 600, messages: [{ role: "user", content: buildPrompt(need, keepLocked ? excludeNames : []) }] });
       const text     = extractText(data.content);
@@ -132,11 +190,20 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
   };
 
   const regenerateUnlocked = async () => {
-    setGenerating(true);
+    setGenerating(true); setGenError("");
     const lockedMeals  = proposed.filter(p => locked[p.id]);
     const need         = proposed.filter(p => !locked[p.id]).length;
     // Exclude ALL current proposed meals (locked + unlocked) so we get fresh suggestions
     const excludeNames = [...new Set([...proposed.map(p => p.name), ...mealPlan.map(m => m.name)])];
+
+    if (genMode === "recipes") {
+      const newMeals = buildFromRecipes(need, excludeNames);
+      setProposed([...lockedMeals, ...newMeals]);
+      setProposedAt(Date.now());
+      if (newMeals.length < need) setGenError(`Only found ${newMeals.length} of ${need} matching saved recipes — fill the rest manually, or switch to AI and regenerate the ❌ slots.`);
+      setGenerating(false);
+      return;
+    }
 
     try {
       const data     = await callClaude({ maxTokens: 600, messages: [{ role: "user", content: buildPrompt(need, excludeNames) }] });
@@ -258,7 +325,15 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
 
     // ── Generator ────────────────────────────────────────────────────────────
     h(Card, { style: { marginBottom: 20 } },
-      h("div", { className: "font-bold font-serif mb-12", style: { fontSize: 15 } }, "✨ AI Meal Planner"),
+      h("div", { className: "font-bold font-serif mb-12", style: { fontSize: 15 } }, "✨ Meal Plan Generator"),
+
+      h("div", { style: { marginBottom: 14 } },
+        h("div", { className: "form-label" }, "Generate From"),
+        h("div", { className: "mode-toggle" },
+          h("button", { type: "button", className: `mode-btn ${genMode === "recipes" ? "active" : ""}`, onClick: () => setGenMode("recipes") }, "📖 My Recipes"),
+          h("button", { type: "button", className: `mode-btn ${genMode === "ai" ? "active" : ""}`, onClick: () => setGenMode("ai") }, "✨ AI"),
+        ),
+      ),
 
       h("div", { className: "flex gap-10", style: { marginBottom: 14 } },
         h("div", { style: { flex: 1 } },

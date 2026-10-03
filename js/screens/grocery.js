@@ -12,6 +12,9 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
   const [qty,         setQty]         = useState("");
   const [unit,        setUnit]        = useState("");
   const [showStaples, setShowStaples] = useState(false);
+  const [editingId,   setEditingId]   = useState(null); // grocery item id currently being quantity-edited
+  const [editAmt,     setEditAmt]     = useState("");
+  const [editUnit,    setEditUnit]    = useState("");
   const { UNITS } = window.APP;
 
   // Receipt scanning state
@@ -79,6 +82,15 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
 
   const toggleItem   = id => setGroceryList(l => l.map(i  => i.id === id ? { ...i, checked: !i.checked } : i));
   const deleteItem   = id => setGroceryList(l => l.filter(i => i.id !== id));
+
+  const startEditQty  = item => { setEditingId(item.id); setEditAmt(item.amount !== "" && item.amount != null ? String(item.amount) : ""); setEditUnit(item.unit || ""); };
+  const cancelEditQty = ()   => setEditingId(null);
+  const saveEditQty   = id   => {
+    setGroceryList(l => l.map(i => i.id === id
+      ? { ...i, amount: editAmt.trim() ? +editAmt : "", unit: editUnit, checkAmount: false }
+      : i));
+    setEditingId(null);
+  };
   const clearChecked = ()  => setGroceryList(l => l.filter(i => !i.checked));
   const clearAll     = ()  => setGroceryList([]);
 
@@ -266,13 +278,37 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
               onChange: () => toggleItem(item.id),
               style: { width: 18, height: 18, accentColor: "#2A7D4F", flexShrink: 0, cursor: "pointer" },
             }),
-            h("span", { className: `grocery-item-name ${item.checked ? "checked" : ""}` },
-              item.name,
-              item.amount ? ` — ${item.amount}${item.unit ? " " + item.unit : ""}` : "",
-              item.checkAmount && h("span", { className: "warn text-xs", style: { marginLeft: 6 } }, "⚠ check amount"),
-              item.notes && item.notes.length > 0 && h("span", { className: "muted text-xs", style: { marginLeft: 6, fontStyle: "italic" } }, `(${item.notes.join(", ")})`),
-            ),
-            h("button", { className: "grocery-item-delete", onClick: () => deleteItem(item.id) }, "×"),
+            editingId === item.id
+              ? h("div", { className: "flex gap-6", style: { flex: 1, alignItems: "center" } },
+                  h("span", { style: { fontSize: 14, flexShrink: 0 } }, item.name),
+                  h("input", {
+                    className: "form-input-sm", style: { width: 56 }, type: "number",
+                    value: editAmt, onChange: e => setEditAmt(e.target.value),
+                    onKeyDown: e => e.key === "Enter" && saveEditQty(item.id),
+                    placeholder: "Amt", autoFocus: true,
+                  }),
+                  h("select", {
+                    className: "form-input-sm", style: { width: 74 },
+                    value: editUnit, onChange: e => setEditUnit(e.target.value),
+                  },
+                    h("option", { value: "" }, "unit"),
+                    UNITS.map(u => h("option", { key: u, value: u }, u)),
+                  ),
+                  h("button", { onClick: () => saveEditQty(item.id), style: { background: "none", border: "none", cursor: "pointer", color: "#2A7D4F", fontSize: 16 } }, "✓"),
+                  h("button", { onClick: cancelEditQty, style: { background: "none", border: "none", cursor: "pointer", color: "#7A6A55", fontSize: 16 } }, "×"),
+                )
+              : h("span", {
+                  className: `grocery-item-name ${item.checked ? "checked" : ""}`,
+                  onClick: () => startEditQty(item),
+                  style: { cursor: "pointer" },
+                  title: "Tap to edit quantity",
+                },
+                  item.name,
+                  item.amount ? ` — ${item.amount}${item.unit ? " " + item.unit : ""}` : " — (tap to add qty)",
+                  item.checkAmount && h("span", { className: "warn text-xs", style: { marginLeft: 6 } }, "⚠ check amount"),
+                  item.notes && item.notes.length > 0 && h("span", { className: "muted text-xs", style: { marginLeft: 6, fontStyle: "italic" } }, `(${item.notes.join(", ")})`),
+                ),
+            editingId !== item.id && h("button", { className: "grocery-item-delete", onClick: () => deleteItem(item.id) }, "×"),
           )
         ),
       )

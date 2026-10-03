@@ -1,7 +1,7 @@
 // ── js/screens/recipes.js ─────────────────────────────────────────────────────
 window.APP = window.APP || {};
 const { createElement: h, useState, useRef, useEffect } = React;
-const { Btn, Card, Tag, Input, Select, PillToggle, SectionHeader, EmptyState } = window.APP;
+const { Btn, Card, Tag, Input, Select, PillToggle, SectionHeader, EmptyState, CollapsibleSection } = window.APP;
 const { uid, fmt$, scaleAmt, fmtIngredient, callClaude, extractText, parseJSON, toggleInArray } = window.APP.utils;
 const { categorize } = window.APP;
 const { COURSES, PROTEINS, APPLIANCES, SECTIONS, MEAL_TYPES, MEAL_ICONS } = window.APP;
@@ -11,8 +11,11 @@ window.APP.RecipesScreen = function({ recipes, setRecipes, onAddToMealPlan, onAd
   const [view,   setView]   = useState("list");
   const [active, setActive] = useState(null);
   const [search, setSearch] = useState("");
-  const [filterCourse,  setFilterCourse]  = useState("");
-  const [filterProtein, setFilterProtein] = useState("");
+  const [filterCourses,    setFilterCourses]    = useState([]);
+  const [filterProteins,   setFilterProteins]   = useState([]);
+  const [filterAppliances, setFilterAppliances] = useState([]);
+  const [filterMealTypes,  setFilterMealTypes]  = useState([]);
+  const [filterTags,       setFilterTags]       = useState([]);
   const [sortBy,        setSortBy]        = useState("az");
   const [showHidden,    setShowHidden]    = useState(false);
   const scrollPos = useRef(0);
@@ -25,6 +28,7 @@ window.APP.RecipesScreen = function({ recipes, setRecipes, onAddToMealPlan, onAd
   const [addingMealType, setAddingMealType] = useState(null); // recipe pending meal-type selection before adding to plan
 
   const allTags = [...new Set(recipes.flatMap(r => r.tags || []))].sort();
+  const activeFilterCount = filterCourses.length + filterProteins.length + filterAppliances.length + filterMealTypes.length + filterTags.length;
 
   // ── Filtering ──────────────────────────────────────────────────────────────
   const filtered = recipes
@@ -38,8 +42,11 @@ window.APP.RecipesScreen = function({ recipes, setRecipes, onAddToMealPlan, onAd
         const inProt = (r.proteins || []).join(" ").toLowerCase().includes(q);
         if (!inName && !inTags && !inProt) return false;
       }
-      if (filterCourse  && r.course !== filterCourse) return false;
-      if (filterProtein && !(r.proteins || []).includes(filterProtein)) return false;
+      if (filterCourses.length    && !filterCourses.includes(r.course)) return false;
+      if (filterProteins.length   && !filterProteins.some(p => (r.proteins || []).includes(p))) return false;
+      if (filterAppliances.length && !filterAppliances.some(a => (r.appliances || []).includes(a))) return false;
+      if (filterMealTypes.length  && !filterMealTypes.some(t => (r.mealTypes || []).includes(t))) return false;
+      if (filterTags.length       && !filterTags.some(t => (r.tags || []).includes(t))) return false;
       return true;
     })
     .sort((a, b) => {
@@ -155,14 +162,32 @@ URL: ${importUrl.trim()}`,
     // Search + filters
     h("div", { style: { marginBottom: 16 } },
       h("input", { className: "search-bar", value: search, onChange: e => setSearch(e.target.value), placeholder: "🔍 Search recipes, tags, proteins…" }),
-      h("div", { className: "flex gap-8", style: { marginBottom: 8 } },
-        h("select", { className: "form-input form-select", style: { flex: 1 }, value: filterCourse, onChange: e => setFilterCourse(e.target.value) },
-          h("option", { value: "" }, "All courses"),
-          COURSES.map(c => h("option", { key: c, value: c }, c)),
-        ),
-        h("select", { className: "form-input form-select", style: { flex: 1 }, value: filterProtein, onChange: e => setFilterProtein(e.target.value) },
-          h("option", { value: "" }, "All proteins"),
-          PROTEINS.map(p => h("option", { key: p, value: p }, p)),
+      h(Card, { className: "card-compact", style: { marginBottom: 8 } },
+        h(CollapsibleSection, { title: `🔎 Filters${activeFilterCount ? ` (${activeFilterCount})` : ""}` },
+          h("div", { className: "form-group" },
+            h("label", { className: "form-label" }, "Course"),
+            h(PillToggle, { options: COURSES, selected: filterCourses, onToggle: c => setFilterCourses(fc => toggleInArray(fc, c)) }),
+          ),
+          h("div", { className: "form-group" },
+            h("label", { className: "form-label" }, "Protein"),
+            h(PillToggle, { options: PROTEINS, selected: filterProteins, onToggle: p => setFilterProteins(fp => toggleInArray(fp, p)) }),
+          ),
+          h("div", { className: "form-group" },
+            h("label", { className: "form-label" }, "Meal Type"),
+            h(PillToggle, { options: MEAL_TYPES, selected: filterMealTypes, onToggle: t => setFilterMealTypes(ft => toggleInArray(ft, t)) }),
+          ),
+          h("div", { className: "form-group" },
+            h("label", { className: "form-label" }, "Appliance"),
+            h(PillToggle, { options: APPLIANCES, selected: filterAppliances, onToggle: a => setFilterAppliances(fa => toggleInArray(fa, a)) }),
+          ),
+          allTags.length > 0 && h("div", { className: "form-group" },
+            h("label", { className: "form-label" }, "Tags"),
+            h(PillToggle, { options: allTags, selected: filterTags, onToggle: t => setFilterTags(ft => toggleInArray(ft, t)) }),
+          ),
+          activeFilterCount > 0 && h(Btn, {
+            label: "Clear Filters", variant: "ghost", className: "btn-sm",
+            onClick: () => { setFilterCourses([]); setFilterProteins([]); setFilterAppliances([]); setFilterMealTypes([]); setFilterTags([]); },
+          }),
         ),
       ),
       h("div", { className: "flex gap-8" },

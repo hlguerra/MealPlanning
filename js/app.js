@@ -88,13 +88,13 @@ function App() {
   }, [groceryList, recipes, costLog, spending, cookHistory, mealPlan, pantry, staples, myAppliances, settings, ingredients, priceHistory, settings.householdId]);
 
   // ── Add recipe to meal plan ──────────────────────────────────────────────────
-  const addToMealPlan = useCallback(recipe => {
+  const addToMealPlan = useCallback((recipe, mealType) => {
     setMealPlan(mp => [
       ...mp,
       {
         id:            uid(),
         name:          recipe.name,
-        mealType:      "Dinner",
+        mealType:      mealType || "Dinner",
         course:        recipe.course,
         proteins:      recipe.proteins || [],
         estimatedCost: recipe.estimatedCost || 0,

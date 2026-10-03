@@ -4,7 +4,7 @@ const { createElement: h, useState, useRef, useEffect } = React;
 const { Btn, Card, Tag, Input, Select, PillToggle, SectionHeader, EmptyState } = window.APP;
 const { uid, fmt$, scaleAmt, fmtIngredient, callClaude, extractText, parseJSON, toggleInArray } = window.APP.utils;
 const { categorize } = window.APP;
-const { COURSES, PROTEINS, APPLIANCES, SECTIONS } = window.APP;
+const { COURSES, PROTEINS, APPLIANCES, SECTIONS, MEAL_TYPES, MEAL_ICONS } = window.APP;
 
 // ── RecipesScreen ─────────────────────────────────────────────────────────────
 window.APP.RecipesScreen = function({ recipes, setRecipes, onAddToMealPlan, onAddToGrocery, requestPin, addCost, showBanner, knownIngredientNames, ingredients, addNewIngredient, priceHistory }) {
@@ -22,6 +22,7 @@ window.APP.RecipesScreen = function({ recipes, setRecipes, onAddToMealPlan, onAd
   const [importError,   setImportError]   = useState("");
   const [newTagPrompt,  setNewTagPrompt]  = useState(null); // tag just saved that's new to the whole library
   const [auditingTag,   setAuditingTag]   = useState(null); // tag currently being AI-checked
+  const [addingMealType, setAddingMealType] = useState(null); // recipe pending meal-type selection before adding to plan
 
   const allTags = [...new Set(recipes.flatMap(r => r.tags || []))].sort();
 
@@ -65,6 +66,13 @@ window.APP.RecipesScreen = function({ recipes, setRecipes, onAddToMealPlan, onAd
     }
     setView("list");
     if (newTags.length) setNewTagPrompt(newTags[0]);
+  };
+
+  const requestAddToMealPlan = recipe => setAddingMealType(recipe);
+  const confirmAddToMealPlan = mealType => {
+    onAddToMealPlan(addingMealType, mealType);
+    showBanner(`✓ ${addingMealType.name} added to meal plan`, "success");
+    setAddingMealType(null);
   };
 
   const deleteRecipe = id => requestPin(() => {
@@ -112,7 +120,7 @@ URL: ${importUrl.trim()}`,
   };
 
   // ── Render ─────────────────────────────────────────────────────────────────
-  if (view === "detail" && active) return h(RecipeDetail, { recipe: active, onBack: closeDetail, onEdit: () => setView("edit"), onDelete: () => deleteRecipe(active.id), onHide: () => toggleHideRecipe(active.id), onAddToMealPlan, onAddToGrocery, showBanner, priceHistory });
+  if (view === "detail" && active) return h(RecipeDetail, { recipe: active, onBack: closeDetail, onEdit: () => setView("edit"), onDelete: () => deleteRecipe(active.id), onHide: () => toggleHideRecipe(active.id), onAddToMealPlan: requestAddToMealPlan, onAddToGrocery, showBanner, priceHistory });
   if (view === "edit"   && active) return h(RecipeForm,   { recipe: active, onSave: saveRecipe, onCancel: closeDetail, knownIngredientNames, ingredients, addNewIngredient, allTags });
   if (view === "new")              return h(RecipeForm,   { recipe: null,   onSave: saveRecipe, onCancel: () => setView("list"), knownIngredientNames, ingredients, addNewIngredient, allTags });
 
@@ -125,6 +133,7 @@ URL: ${importUrl.trim()}`,
       ),
     ),
     auditingTag && h(window.APP.TagAuditModal, { tag: auditingTag, recipes, setRecipes, addCost, showBanner, onClose: () => setAuditingTag(null) }),
+    addingMealType && h(MealTypePickerModal, { recipe: addingMealType, onPick: confirmAddToMealPlan, onClose: () => setAddingMealType(null) }),
     h(SectionHeader, {
       title: "Recipes",
       action: h("div", { className: "flex gap-8" },
@@ -172,7 +181,7 @@ URL: ${importUrl.trim()}`,
     filtered.length === 0 && h(EmptyState, { icon: "📖", title: "No recipes yet", sub: "Add your first recipe or import from a URL" }),
 
     h("div", { style: { display: "grid", gap: 12 } },
-      filtered.map(r => h(RecipeCard, { key: r.id, recipe: r, onClick: () => openRecipe(r), onAddToMealPlan, onAddToGrocery, showBanner })),
+      filtered.map(r => h(RecipeCard, { key: r.id, recipe: r, onClick: () => openRecipe(r), onAddToMealPlan: requestAddToMealPlan, onAddToGrocery, showBanner })),
     ),
   );
 };
@@ -202,7 +211,6 @@ function RecipeCard({ recipe: r, onClick, onAddToMealPlan, onAddToGrocery, showB
         onClick: e => {
           e.stopPropagation();
           onAddToMealPlan(r);
-          showBanner(`✓ ${r.name} added to meal plan`, "success");
         },
         style: {
           flex: 1,
@@ -326,7 +334,7 @@ function RecipeDetail({ recipe, onBack, onEdit, onDelete, onHide, onAddToMealPla
     h("div", { className: "flex gap-10 wrap", style: { marginBottom: 8 } },
       h(Btn, {
         label: "Add to Meal Plan", icon: "🗓", style: { flex: 1 },
-        onClick: () => { onAddToMealPlan(recipe); showBanner(`✓ ${recipe.name} added to meal plan`, "success"); },
+        onClick: () => onAddToMealPlan(recipe),
       }),
       h(Btn, { label: "Add to Grocery", icon: "🛒", variant: "accent", style: { flex: 1 }, onClick: () => onAddToGrocery(recipe, servings) }),
     ),
@@ -337,7 +345,7 @@ function RecipeDetail({ recipe, onBack, onEdit, onDelete, onHide, onAddToMealPla
 
 // ── RecipeForm ────────────────────────────────────────────────────────────────
 function RecipeForm({ recipe, onSave, onCancel, knownIngredientNames, ingredients, addNewIngredient, allTags }) {
-  const blank = { name: "", course: "Main", proteins: [], tags: [], appliances: [], servings: 2, prepTime: 0, cookTime: 0, photo: "", estimatedCost: 0, ingredients: [], steps: [""], notes: "", nutrition: {} };
+  const blank = { name: "", course: "Main", proteins: [], mealTypes: [], tags: [], appliances: [], servings: 2, prepTime: 0, cookTime: 0, photo: "", estimatedCost: 0, ingredients: [], steps: [""], notes: "", nutrition: {} };
   const [form, setForm] = useState(recipe ? { ...blank, ...recipe } : blank);
   const [tagInput, setTagInput] = useState("");
   const { UNITS } = window.APP;
@@ -386,6 +394,13 @@ function RecipeForm({ recipe, onSave, onCancel, knownIngredientNames, ingredient
     h("div", { className: "form-group" },
       h("label", { className: "form-label" }, "Protein Type"),
       h(PillToggle, { options: PROTEINS, selected: form.proteins || [], onToggle: p => upd("proteins", toggleInArray(form.proteins || [], p)) }),
+    ),
+
+    h("div", { className: "form-group" },
+      h("label", { className: "form-label" }, "Meal Types ",
+        h("span", { className: "muted", style: { fontWeight: 400, fontSize: 11 } }, "(can be more than one)"),
+      ),
+      h(PillToggle, { options: MEAL_TYPES, selected: form.mealTypes || [], onToggle: t => upd("mealTypes", toggleInArray(form.mealTypes || [], t)) }),
     ),
 
     h("div", { className: "form-group" },
@@ -531,3 +546,36 @@ window.APP.TagAuditModal = function({ tag, recipes, setRecipes, addCost, showBan
     ),
   );
 };
+
+// ── MealTypePickerModal ───────────────────────────────────────────────────────
+// Shown every time a recipe is added to the meal plan, so you always choose which
+// slot (Breakfast/Lunch/Dinner) it goes into — recipes can carry more than one
+// meal type, and the app has no reliable way to guess which one you mean.
+function MealTypePickerModal({ recipe, onPick, onClose }) {
+  const options = recipe.mealTypes?.length ? recipe.mealTypes : MEAL_TYPES;
+  return h("div", {
+    style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 200, display: "flex", alignItems: "flex-end" },
+    onClick: onClose,
+  },
+    h("div", {
+      style: { background: "#FFF8F0", borderRadius: "20px 20px 0 0", width: "100%", padding: "20px 16px 32px" },
+      onClick: e => e.stopPropagation(),
+    },
+      h("div", { className: "flex-between", style: { marginBottom: 16 } },
+        h("div", { className: "font-bold font-serif", style: { fontSize: 17 } }, `Add "${recipe.name}" as…`),
+        h("button", { onClick: onClose, style: { background: "none", border: "none", fontSize: 24, cursor: "pointer", color: "#7A6A55" } }, "×"),
+      ),
+      h("div", { className: "flex gap-8" },
+        options.map(t => h("button", {
+          key: t,
+          onClick: () => onPick(t),
+          className: "meal-type-btn",
+          style: { flex: 1 },
+        },
+          h("span", { className: "meal-type-icon" }, MEAL_ICONS[t]),
+          t,
+        )),
+      ),
+    ),
+  );
+}

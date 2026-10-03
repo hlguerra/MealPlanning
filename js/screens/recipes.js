@@ -126,6 +126,58 @@ URL: ${importUrl.trim()}`,
     setImportLoading(false);
   };
 
+  // ── Photo import ───────────────────────────────────────────────────────────
+  const handleRecipePhotos = async e => {
+    const all = Array.from(e.target.files || []);
+    e.target.value = ""; // allow re-selecting the same photos later
+    if (!all.length) return;
+    if (all.length > 4) showBanner("Only the first 4 photos were used.", "error");
+    const files = all.slice(0, 4);
+    setPhotoLoading(true); setPhotoError("");
+    try {
+      const { resizeImageToBase64, scanRecipePhotos } = window.APP.utils;
+      const { UNITS } = window.APP;
+      const images = await Promise.all(files.map(f => resizeImageToBase64(f)));
+      const p = await scanRecipePhotos(images, allTags);
+      addCost("recipePhotoScan");
+
+      // Clean up Claude's output so it can't put invalid values in the editor
+      const rawIngs = (p.ingredients || []).filter(i => i && i.name).map(i => {
+        const amt = parseFloat(i.amount);
+        return {
+          id: uid(), name: String(i.name).trim(), description: i.description || "",
+          amount: isNaN(amt) ? "" : amt,
+          unit: UNITS.includes(i.unit) ? i.unit : "",
+          section: "Other",
+        };
+      });
+      const linked = window.APP.utils.linkIngredients(rawIngs, ingredients)
+        .map(ing => ({ ...ing, section: categorize(ing.name) }));
+
+      setActive({
+        id: uid(),
+        name: p.name || "",
+        course: COURSES.includes(p.course) ? p.course : "Main",
+        proteins:   (p.proteins   || []).filter(x => PROTEINS.includes(x)),
+        mealTypes:  (p.mealTypes  || []).filter(x => MEAL_TYPES.includes(x)),
+        appliances: (p.appliances || []).filter(x => APPLIANCES.includes(x)),
+        tags: [...new Set((p.tags || []).map(t => String(t).trim()).filter(Boolean))].slice(0, 4),
+        servings: +p.servings || 4,
+        prepTime: +p.prepTime || 0,
+        cookTime: +p.cookTime || 0,
+        estimatedCost: +p.estimatedCost || 0,
+        ingredients: linked,
+        steps: (p.steps || []).length ? p.steps : [""],
+        notes: p.notes || "",
+        photo: "", nutrition: {},
+      });
+      setView("edit");
+    } catch {
+      setPhotoError("Could not read those photos. Try clearer, well-lit shots, or add the recipe manually.");
+    }
+    setPhotoLoading(false);
+  };
+
   // ── Render ─────────────────────────────────────────────────────────────────
   if (view === "detail" && active) return h(RecipeDetail, { recipe: active, onBack: closeDetail, onEdit: () => setView("edit"), onDelete: () => deleteRecipe(active.id), onHide: () => toggleHideRecipe(active.id), onAddToMealPlan: requestAddToMealPlan, onAddToGrocery, showBanner, priceHistory });
   if (view === "edit"   && active) return h(RecipeForm,   { recipe: active, onSave: saveRecipe, onCancel: closeDetail, knownIngredientNames, ingredients, addNewIngredient, allTags });
@@ -145,9 +197,15 @@ URL: ${importUrl.trim()}`,
       title: "Recipes",
       action: h("div", { className: "flex gap-8" },
         h(Btn, { label: "Import URL", variant: "ghost", icon: "🔗", onClick: () => setImporting(v => !v), className: "btn-sm" }),
+        h(Btn, { label: photoLoading ? "Reading…" : "Scan", variant: "ghost", icon: "📷", onClick: () => photoInputRef.current?.click(), disabled: photoLoading, className: "btn-sm" }),
         h(Btn, { label: "New", icon: "+", onClick: () => setView("new") }),
       ),
     }),
+
+    // Photo import — hidden multi-select picker (no capture attribute, so iOS offers the photo library)
+    h("input", { ref: photoInputRef, type: "file", accept: "image/*", multiple: true, style: { display: "none" }, onChange: handleRecipePhotos }),
+    photoLoading && h("div", { className: "muted text-sm", style: { marginBottom: 12 } }, "📷 Reading recipe photos…"),
+    photoError && h("div", { className: "warn text-sm", style: { marginBottom: 12 } }, photoError),
 
     // URL import panel
     importing && h(Card, { style: { marginBottom: 16 } },

@@ -273,6 +273,45 @@ Ignore tax, subtotal, total, coupons, and non-food lines.`,
     return parseJSON(text);
   },
 
+  // ── Scan recipe photos (cookbook/magazine pages) ──────────────────────────────
+  // One API call for all pages (up to 4) so Claude can merge ingredients and steps
+  // that span pages. Returns a raw recipe object for the caller to clean up, link
+  // to the standard ingredient list, and open in the editor. Nothing is saved here.
+  async scanRecipePhotos(base64Images = [], existingTags = []) {
+    const { callClaude, extractText, parseJSON } = window.APP.utils;
+    const { COURSES, PROTEINS, APPLIANCES, MEAL_TYPES, UNITS } = window.APP;
+    const data = await callClaude({
+      maxTokens: 2500,
+      messages: [{
+        role: "user",
+        content: [
+          ...base64Images.map(b64 => ({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: b64 } })),
+          {
+            type: "text",
+            text: `These photos are pages of ONE recipe, probably in order (use the content to piece them together if not). Combine them into a single recipe. Return ONLY valid JSON, no markdown:
+{"name":"","course":"Main","proteins":[],"mealTypes":[],"tags":[],"appliances":[],"servings":4,"prepTime":0,"cookTime":0,"ingredients":[{"name":"","amount":1,"unit":"","description":""}],"steps":[],"notes":"","estimatedCost":0}
+Rules:
+- Copy what is printed. Do NOT invent ingredients, quantities, or steps. If a quantity is not visible, use amount:"".
+- "amount": a number only. Convert fractions to decimals (1 1/2 = 1.5, 1/4 = 0.25).
+- "unit": exactly one of [${UNITS.join(", ")}], or "" if none fits (e.g. "salt to taste", or a printed unit not in the list such as "can"). When the printed unit isn't in the list, put the printed quantity text in "description" (e.g. "1 (14 oz) can").
+- "name": the ingredient itself without prep words. Put prep or state (e.g. "diced", "room temperature") in "description".
+- "steps": one string per step, no step numbers.
+- "course": one of [${COURSES.join(", ")}].
+- "proteins": zero or more of [${PROTEINS.join(", ")}].
+- "mealTypes": zero or more of [${MEAL_TYPES.join(", ")}].
+- "appliances": zero or more of [${APPLIANCES.join(", ")}], only ones the recipe actually uses.
+- "tags": 0-4 short descriptive tags (cuisine, "quick", etc). Prefer tags from this existing list when they fit: ${JSON.stringify(existingTags)}. Only add a new tag if none fit.
+- "notes": any headnote or tips printed on the pages, otherwise "".
+- "servings"/"prepTime"/"cookTime" (minutes): from the page if printed; otherwise servings 4 and times 0.
+- "estimatedCost": rough USD estimate for the whole recipe at typical Ohio grocery prices.`,
+          },
+        ],
+      }],
+    });
+    const text = extractText(data.content);
+    return parseJSON(text);
+  },
+
   // ── AI tag audit ──────────────────────────────────────────────────────────────
   // Given a tag and a list of candidate recipes (usually ones not already carrying
   // that tag), asks Claude which ones plausibly fit. Returns an array of recipe IDs —

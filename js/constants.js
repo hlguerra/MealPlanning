@@ -78,7 +78,7 @@ window.APP.APPLIANCES = [
 window.APP.UNITS = [
   "tsp", "tbsp", "fl oz", "cup", "pint", "quart", "gallon", "ml", "l",
   "oz", "lb", "g", "kg",
-  "count",
+  "count", "clove", "pinch",
 ];
 
 // Conversion factor to a base unit within each type (ml for volume, g for weight).

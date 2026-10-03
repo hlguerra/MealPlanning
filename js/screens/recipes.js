@@ -285,7 +285,7 @@ function RecipeDetail({ recipe, onBack, onEdit, onDelete, onHide, onAddToMealPla
         ),
       ),
       (recipe.ingredients || []).map(ing =>
-        h("div", { key: ing.id, className: "flex-between divider", style: { padding: "6px 0", fontSize: 14 } },
+        h("div", { key: ing.id, className: "ingredient-row" },
           h("span", null, ing.name, ing.description ? h("span", { className: "muted" }, ` (${ing.description})`) : null),
           h("span", { className: "muted font-bold" }, fmtIngredient(scaleAmt(ing.amount, recipe.servings, servings), ing.unit)),
         )
@@ -348,6 +348,13 @@ function RecipeForm({ recipe, onSave, onCancel, knownIngredientNames, ingredient
   const updIngKey  = (id, k, v) => upd("ingredients", form.ingredients.map(i => i.id === id ? { ...i, [k]: v } : i));
   const selectIng  = (id, ing)  => upd("ingredients", form.ingredients.map(i => i.id === id ? { ...i, ingredientId: ing.id, name: ing.name, section: categorize(ing.name) } : i));
   const remIng     = id         => upd("ingredients", form.ingredients.filter(i => i.id !== id));
+  const moveIng    = (idx, dir) => {
+    const next = [...form.ingredients];
+    const swap = idx + dir;
+    if (swap < 0 || swap >= next.length) return;
+    [next[idx], next[swap]] = [next[swap], next[idx]];
+    upd("ingredients", next);
+  };
 
   const addStep  = ()       => upd("steps", [...form.steps, ""]);
   const updStep  = (idx, v) => upd("steps", form.steps.map((s, i) => i === idx ? v : s));
@@ -399,13 +406,14 @@ function RecipeForm({ recipe, onSave, onCancel, knownIngredientNames, ingredient
     ),
 
     h("div", { className: "form-group" },
-      h("div", { className: "flex-between mb-8" },
-        h("label", { className: "form-label", style: { marginBottom: 0 } }, "Ingredients"),
-        h(Btn, { label: "+ Add", variant: "ghost", onClick: addIng, className: "btn-sm" }),
-      ),
-      (form.ingredients || []).map(ing =>
+      h("label", { className: "form-label" }, "Ingredients"),
+      (form.ingredients || []).map((ing, idx) =>
         h("div", { key: ing.id },
           h("div", { className: "ing-row" },
+            h("div", { style: { display: "flex", flexDirection: "column", gap: 2 } },
+              h("button", { onClick: () => moveIng(idx, -1), disabled: idx === 0, style: { background: "none", border: "none", cursor: idx === 0 ? "default" : "pointer", opacity: idx === 0 ? 0.3 : 1, fontSize: 14, lineHeight: 1 } }, "▲"),
+              h("button", { onClick: () => moveIng(idx, 1), disabled: idx === form.ingredients.length - 1, style: { background: "none", border: "none", cursor: idx === form.ingredients.length - 1 ? "default" : "pointer", opacity: idx === form.ingredients.length - 1 ? 0.3 : 1, fontSize: 14, lineHeight: 1 } }, "▼"),
+            ),
             h(window.APP.IngredientSelect, {
               ingredients: ingredients || [],
               selectedId: ing.ingredientId,
@@ -436,13 +444,11 @@ function RecipeForm({ recipe, onSave, onCancel, knownIngredientNames, ingredient
           h("div", { className: "ing-section-hint" }, `📂 ${ing.section}`),
         )
       ),
+      h(Btn, { label: "+ Add Ingredient", variant: "ghost", onClick: addIng, className: "btn-sm", style: { marginTop: 8 } }),
     ),
 
     h("div", { className: "form-group" },
-      h("div", { className: "flex-between mb-8" },
-        h("label", { className: "form-label", style: { marginBottom: 0 } }, "Steps"),
-        h(Btn, { label: "+ Step", variant: "ghost", onClick: addStep, className: "btn-sm" }),
-      ),
+      h("label", { className: "form-label" }, "Steps"),
       (form.steps || []).map((s, i) =>
         h("div", { key: i, className: "flex gap-8 mb-8", style: { alignItems: "flex-start" } },
           h("div", { className: "step-num", style: { marginTop: 8 } }, i + 1),
@@ -450,6 +456,7 @@ function RecipeForm({ recipe, onSave, onCancel, knownIngredientNames, ingredient
           h("button", { onClick: () => remStep(i), style: { background: "none", border: "none", cursor: "pointer", color: "#C0392B", fontSize: 18, marginTop: 8 } }, "×"),
         )
       ),
+      h(Btn, { label: "+ Step", variant: "ghost", onClick: addStep, className: "btn-sm", style: { marginTop: 8 } }),
     ),
 
     h(Input, { label: "Notes", value: form.notes || "", onChange: v => upd("notes", v), multiline: true, placeholder: "Tips, variations, substitutions…" }),

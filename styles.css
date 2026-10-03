@@ -450,6 +450,16 @@ img {
 .grocery-item-delete:hover { opacity: 1; }
 
 /* ── Step numbers ─────────────────────────────────────────────────────────── */
+.ingredient-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 340px;
+  padding: 6px 0;
+  border-bottom: 1px solid #F0E6D3;
+  font-size: 14px;
+}
+
 .step-num {
   width: 24px;
   height: 24px;

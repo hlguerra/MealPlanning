@@ -270,6 +270,7 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
               item.name,
               item.amount ? ` — ${item.amount}${item.unit ? " " + item.unit : ""}` : "",
               item.checkAmount && h("span", { className: "warn text-xs", style: { marginLeft: 6 } }, "⚠ check amount"),
+              item.notes && item.notes.length > 0 && h("span", { className: "muted text-xs", style: { marginLeft: 6, fontStyle: "italic" } }, `(${item.notes.join(", ")})`),
             ),
             h("button", { className: "grocery-item-delete", onClick: () => deleteItem(item.id) }, "×"),
           )

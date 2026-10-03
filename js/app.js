@@ -266,6 +266,7 @@ function App() {
             id: uid(), name: ni.name, ingredientId: ni.ingredientId || null, section: ni.section || categorize(ni.name),
             amount: ni.hasAmount ? ni.amount : "", unit: ni.hasAmount ? ni.unit : "",
             checked: false, checkAmount: !!ni.checkAmount,
+            notes: ni.notes && ni.notes.length ? ni.notes : undefined,
           });
         }
       });

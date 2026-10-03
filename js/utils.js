@@ -88,15 +88,22 @@ window.APP.utils = {
   // for that name); incompatible units are combined by tacking on a separate
   // note rather than guessing. Non-numeric/blank amounts are left as notes.
   combineIngredients(items = []) {
-    const { normalizeIngName, convertUnit } = window.APP.utils;
-    const groups = {};
+    const { convertUnit, sameIngredient } = window.APP.utils;
+    // Match against existing groups the same way the rest of the app decides
+    // "is this the same ingredient" — same ingredientId, or matching normalized
+    // name when either side isn't linked. Using a single shared rule here (instead
+    // of a raw key lookup) is what fixes linked/unlinked duplicates silently
+    // failing to combine.
+    const groups = [];
     items.forEach(item => {
-      const key = item.ingredientId || normalizeIngName(item.name);
-      if (!key) return;
-      if (!groups[key]) {
-        groups[key] = { name: item.name, ingredientId: item.ingredientId || null, section: item.section, amount: 0, unit: item.unit || "", notes: [], hasAmount: false };
+      if (!item.name) return;
+      let g = groups.find(existing => sameIngredient(existing, item));
+      if (!g) {
+        g = { name: item.name, ingredientId: item.ingredientId || null, section: item.section, amount: 0, unit: item.unit || "", notes: [], hasAmount: false };
+        groups.push(g);
+      } else if (!g.ingredientId && item.ingredientId) {
+        g.ingredientId = item.ingredientId; // upgrade group to linked as soon as we see a linked match
       }
-      const g = groups[key];
       const amt = parseFloat(item.amount);
       if (!item.unit || isNaN(amt)) {
         // non-quantifiable (e.g. "salt to taste") — keep as a note, don't sum
@@ -118,7 +125,7 @@ window.APP.utils = {
         g.mismatched = true;
       }
     });
-    return Object.values(groups);
+    return groups;
   },
 
   // ── Standard ingredient list matching ─────────────────────────────────────────

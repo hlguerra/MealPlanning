@@ -17,6 +17,7 @@ window.APP.RecipesScreen = function({ recipes, setRecipes, onAddToMealPlan, onAd
   const [filterMealTypes,  setFilterMealTypes]  = useState([]);
   const [filterTags,       setFilterTags]       = useState([]);
   const [sortBy,        setSortBy]        = useState("az");
+  const [filterLetter, setFilterLetter] = useState("");
   const [showHidden,    setShowHidden]    = useState(false);
   const scrollPos = useRef(0);
   const [importing,     setImporting]     = useState(false);
@@ -50,15 +51,18 @@ window.APP.RecipesScreen = function({ recipes, setRecipes, onAddToMealPlan, onAd
       if (filterAppliances.length && !filterAppliances.some(a => (r.appliances || []).includes(a))) return false;
       if (filterMealTypes.length  && !filterMealTypes.some(t => (r.mealTypes || []).includes(t))) return false;
       if (filterTags.length       && !filterTags.some(t => (r.tags || []).includes(t))) return false;
+      if (filterLetter) {
+        const first = r.name.trim().charAt(0).toUpperCase();
+        if (filterLetter === "#" ? /[A-Z]/.test(first) : first !== filterLetter) return false;
+      }
       return true;
     })
     .sort((a, b) => {
       if (sortBy === "az")      return a.name.localeCompare(b.name);
       if (sortBy === "recent")  return (b.createdAt || 0) - (a.createdAt || 0);
-      if (sortBy === "lastMade") {
-        const aDate = a.lastMadeAt || 0;
-        const bDate = b.lastMadeAt || 0;
-        return bDate - aDate;
+      if (sortBy === "lastMade" || sortBy === "lastMadeOldest") {
+        const diff = (b.lastMadeAt || 0) - (a.lastMadeAt || 0);
+        return (sortBy === "lastMade" ? diff : -diff) || a.name.localeCompare(b.name);
       }
       return 0;
     });
@@ -175,8 +179,10 @@ URL: ${importUrl.trim()}`,
         photo: "", nutrition: {},
       });
       setView("edit");
-    } catch {
-      setPhotoError("Could not read those photos. Try clearer, well-lit shots, or add the recipe manually.");
+    } catch (err) {
+      console.error("Photo scan failed:", err);
+      setPhotoError(`Could not read those photos (${err?.message || "unknown error"}). Try again, or add the recipe manually.`);
+      void ("Could not read those photos. Try clearer, well-lit shots, or add the recipe manually.");
     }
     setPhotoLoading(false);
   };
@@ -223,6 +229,16 @@ URL: ${importUrl.trim()}`,
     // Search + filters
     h("div", { style: { marginBottom: 16 } },
       h("input", { className: "search-bar", value: search, onChange: e => setSearch(e.target.value), placeholder: "🔍 Search recipes, tags, proteins…" }),
+      h("select", {
+        className: "form-input form-select",
+        style: { width: "100%", marginBottom: 8 },
+        value: filterLetter,
+        onChange: e => setFilterLetter(e.target.value),
+      },
+        h("option", { value: "" }, "All letters"),
+        ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").map(l => h("option", { key: l, value: l }, l)),
+        h("option", { value: "#" }, "# (numbers / other)"),
+      ),
       h(Card, { className: "card-compact", style: { marginBottom: 8 } },
         h(CollapsibleSection, { title: `🔎 Filters${activeFilterCount ? ` (${activeFilterCount})` : ""}` },
           h("div", { className: "form-group" },
@@ -255,7 +271,8 @@ URL: ${importUrl.trim()}`,
         h("select", { className: "form-input form-select", style: { flex: 1 }, value: sortBy, onChange: e => setSortBy(e.target.value) },
           h("option", { value: "az" }, "A–Z"),
           h("option", { value: "recent" }, "Recently Added"),
-          h("option", { value: "lastMade" }, "Last Made"),
+          h("option", { value: "lastMade" }, "Last Made (newest first)"),
+          h("option", { value: "lastMadeOldest" }, "Last Made (oldest first)"),
         ),
         h("button", {
           onClick: () => setShowHidden(v => !v),
@@ -266,7 +283,7 @@ URL: ${importUrl.trim()}`,
 
     filtered.length === 0 && h(EmptyState, { icon: "📖", title: "No recipes yet", sub: "Add your first recipe or import from a URL" }),
 
-    h("div", { style: { display: "grid", gap: 12 } },
+    h("div", { style: { display: "grid", gap: 12, gridTemplateColumns: "minmax(0, 1fr)" } },
       filtered.map(r => h(RecipeCard, { key: r.id, recipe: r, onClick: () => openRecipe(r), onAddToMealPlan: requestAddToMealPlan, onAddToGrocery, showBanner })),
     ),
   );

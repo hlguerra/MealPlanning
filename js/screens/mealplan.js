@@ -596,6 +596,19 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
                 ),
               ),
 
+              // Groceries-already-added toggle (skipped by "→ Grocery" when on)
+              !m.checked && h("button", {
+                onClick: () => setMealPlan(mp => mp.map(x => x.id === m.id ? { ...x, groceriesAdded: !x.groceriesAdded } : x)),
+                title: m.groceriesAdded ? "Groceries already added — tap to undo" : "Tap if the groceries for this are already covered",
+                style: {
+                  marginTop: 8, marginRight: 8, padding: "4px 10px", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                  fontFamily: "'DM Sans',sans-serif",
+                  border: `1.5px solid ${m.groceriesAdded ? "#2A7D4F" : "#F0E6D3"}`,
+                  background: m.groceriesAdded ? "#E8F4EC" : "#FFF8F0",
+                  color: m.groceriesAdded ? "#2A7D4F" : "#7A6A55",
+                },
+              }, m.groceriesAdded ? "🛒 Groceries added ✓" : "🛒 Groceries not added"),
+
               // Mark as Made button (only if not already checked)
               !m.checked && h("div", { style: { marginTop: 8, display: "flex", gap: 8, alignItems: "center" } },
                 // Show date input inline when marking

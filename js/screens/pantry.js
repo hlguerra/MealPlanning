@@ -15,6 +15,8 @@ window.APP.PantryScreen = function({ pantry, setPantry, addCost, knownIngredient
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState("");
   const { UNITS } = window.APP;
+  const [editingId, setEditingId] = useState(null);
+  const [draft,     setDraft]     = useState(null);
 
   // ── Item actions (no PIN required) ─────────────────────────────────────────
   const addItem = () => {
@@ -29,6 +31,25 @@ window.APP.PantryScreen = function({ pantry, setPantry, addCost, knownIngredient
   };
 
   const removeItem = id => setPantry(p => p.filter(i => i.id !== id));
+
+  const startEdit = item => {
+    setEditingId(item.id);
+    setDraft({ name: item.name, ingredientId: item.ingredientId, amount: item.amount ?? "", unit: item.unit || "" });
+  };
+
+  const saveEdit = () => {
+    if (!draft?.name) return;
+    const amt = parseFloat(draft.amount);
+    setPantry(p => p.map(i => i.id === editingId ? {
+      ...i,
+      name: draft.name,
+      ingredientId: draft.ingredientId,
+      section: draft.name !== i.name ? categorize(draft.name) : i.section,
+      amount: isNaN(amt) ? "" : amt,
+      unit: draft.unit,
+    } : i));
+    setEditingId(null); setDraft(null);
+  };
 
   // ── AI suggestions ──────────────────────────────────────────────────────────
   const getSuggestions = async () => {
@@ -142,10 +163,41 @@ Return ONLY a valid JSON array, no markdown fences:
         h("div", { className: "grocery-section-label" }, section),
         items.map(item =>
           h("div", { key: item.id, style: { display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid #F0E6D3" } },
-            h("span", { style: { flex: 1, fontSize: 14 } },
-              item.name,
-              item.amount ? ` — ${item.amount}${item.unit ? " " + item.unit : ""}` : "",
-            ),
+            editingId === item.id && draft
+              ? h(React.Fragment, null,
+                  h(window.APP.IngredientSelect, {
+                    ingredients: ingredients || [],
+                    selectedId: draft.ingredientId,
+                    onSelect: sel => setDraft(d => ({ ...d, name: sel.name, ingredientId: sel.id })),
+                    onAddNew: name => addNewIngredient(name),
+                    placeholder: "Search ingredient…",
+                  }),
+                  h("input", {
+                    className: "form-input-sm",
+                    style: { width: 56, flexShrink: 0 },
+                    value: draft.amount,
+                    onChange: e => setDraft(d => ({ ...d, amount: e.target.value })),
+                    placeholder: "Amt", type: "number", min: "0",
+                  }),
+                  h("select", {
+                    className: "form-input-sm",
+                    style: { width: 74, flexShrink: 0 },
+                    value: draft.unit,
+                    onChange: e => setDraft(d => ({ ...d, unit: e.target.value })),
+                  },
+                    h("option", { value: "" }, "unit"),
+                    UNITS.map(u => h("option", { key: u, value: u }, u)),
+                  ),
+                  h("button", {
+                    onClick: saveEdit,
+                    style: { background: "none", border: "none", cursor: "pointer", color: "#2A7D4F", fontSize: 18 },
+                    title: "Save",
+                  }, "✓"),
+                )
+              : h("span", { onClick: () => startEdit(item), style: { flex: 1, fontSize: 14, cursor: "pointer" } },
+                  item.name,
+                  item.amount ? ` — ${item.amount}${item.unit ? " " + item.unit : ""}` : "",
+                ),
             h("button", {
               onClick: () => removeItem(item.id),
               style: { background: "none", border: "none", cursor: "pointer", color: "#C0392B", fontSize: 18, opacity: 0.5 },

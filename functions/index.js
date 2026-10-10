@@ -29,7 +29,8 @@ exports.anthropicProxy = onRequest(
         let data = "";
         proxyRes.on("data", chunk => { data += chunk; });
         proxyRes.on("end", () => {
-          res.status(proxyRes.statusCode).set("Content-Type", "application/json").send(data);
+          if (proxyRes.statusCode >= 400) console.error("Anthropic error", proxyRes.statusCode, data.slice(0, 500));
+res.status(proxyRes.statusCode).set("Content-Type", "application/json").send(data);
         });
       });
       proxyReq.on("error", err => { console.error(err); res.status(500).json({ error: "Proxy failed" }); });

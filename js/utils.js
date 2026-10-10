@@ -249,18 +249,24 @@ window.APP.utils = {
   // ── Scan a receipt photo for line items ───────────────────────────────────────
   // One API call per receipt (not per item). Returns raw parsed items for review —
   // never auto-saved, since receipt item names rarely match your standard list cleanly.
-  async scanReceipt(base64Image) {
+  async scanReceipt(base64Images) {
     const { callClaude, extractText, parseJSON } = window.APP.utils;
+    const images = Array.isArray(base64Images) ? base64Images : [base64Images];
     const data = await callClaude({
-      maxTokens: 1500,
+      maxTokens: 3000,
       messages: [{
         role: "user",
         content: [
-          { type: "image", source: { type: "base64", media_type: "image/jpeg", data: base64Image } },
+          ...images.map(b64 => ({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: b64 } })),
           {
             type: "text",
-            text: `Extract every purchased grocery line item from this receipt photo. Return ONLY valid JSON, no markdown:
-[{"name":"","amount":1,"unit":"","price":0}]
+            text: `${images.length > 1
+              ? "These images are consecutive parts of ONE grocery receipt, in order. They may overlap, so list each purchased line item only once."
+              : "This image is a grocery receipt."}
+Extract every purchased grocery line item. Return ONLY valid JSON, no markdown:
+{"store":"","date":"","items":[{"name":"","amount":1,"unit":"","price":0}]}
+- "store": the store name printed on the receipt, or "" if not visible
+- "date": the purchase date as YYYY-MM-DD, or "" if not visible or the year isn't shown
 - "name": item name as printed on the receipt (abbreviated is fine)
 - "amount"/"unit": your best guess at quantity purchased. Use one of: tsp, tbsp, fl oz, cup, pint, quart, gallon, ml, l, oz, lb, g, kg, count. If unclear, use amount:1, unit:"count".
 - "price": the price paid for that line item (not a per-unit price)
@@ -269,8 +275,11 @@ Ignore tax, subtotal, total, coupons, and non-food lines.`,
         ],
       }],
     });
-    const text = extractText(data.content);
-    return parseJSON(text);
+    const parsed = parseJSON(extractText(data.content));
+    // Accept the new object shape, or a bare array just in case
+    return Array.isArray(parsed)
+      ? { store: "", date: "", items: parsed }
+      : { store: parsed.store || "", date: parsed.date || "", items: parsed.items || [] };
   },
 
   // ── Scan recipe photos (cookbook/magazine pages) ──────────────────────────────

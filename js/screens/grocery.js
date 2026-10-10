@@ -21,26 +21,43 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
   const [scanLoading, setScanLoading] = useState(false);
   const [scanError,   setScanError]   = useState("");
   const [receiptItems, setReceiptItems] = useState(null); // array under review, or null when not reviewing
-  const [receiptStore, setReceiptStore] = useState("");
+  const [receiptStore, setReceiptStore] = useState("");   // free text, used only when "Other" is picked
+  const [storeChoice,  setStoreChoice]  = useState("");   // a name from the list, "Other", or ""
+  const storeNames = (FLYER_LINKS || []).map(f => f.name);
   const [receiptDate,  setReceiptDate]  = useState(new Date().toISOString().split("T")[0]);
   const fileInputRef = React.useRef(null);
 
   const handleReceiptFile = async e => {
-    const file = e.target.files?.[0];
-    e.target.value = ""; // allow re-selecting the same file later
-    if (!file) return;
+    const all = Array.from(e.target.files || []);
+    e.target.value = ""; // allow re-selecting the same files later
+    if (!all.length) return;
+    if (all.length > 4) showBanner("Only the first 4 screenshots were used.", "error");
+    const files = all.slice(0, 4);
     setScanLoading(true); setScanError("");
     try {
       const { resizeImageToBase64, scanReceipt } = window.APP.utils;
-      const base64 = await resizeImageToBase64(file);
-      const items  = await scanReceipt(base64);
+      const images = await Promise.all(files.map(f => resizeImageToBase64(f)));
+      const scan   = await scanReceipt(images);
       addCost("receiptScan");
-      setReceiptItems((items || []).map(it => ({
+      setReceiptItems((scan.items || []).map(it => ({
         id: window.APP.utils.uid(), name: it.name || "", ingredientId: null,
         amount: it.amount || 1, unit: it.unit || "count", price: it.price || 0,
       })));
-    } catch {
-      setScanError("Could not read that receipt. Try a clearer photo, or add prices manually.");
+
+      // Pre-fill store and date from the receipt (you can still change both)
+      const today = new Date().toISOString().split("T")[0];
+      setStoreChoice(""); setReceiptStore("");
+      if (scan.store) {
+        const norm = s => String(s).toLowerCase().replace(/[^a-z]/g, "");
+        const match = storeNames.find(s => norm(scan.store).includes(norm(s)));
+        if (match) setStoreChoice(match);
+        else { setStoreChoice("Other"); setReceiptStore(String(scan.store).trim()); }
+      }
+      const validDate = /^\d{4}-\d{2}-\d{2}$/.test(scan.date || "") && scan.date <= today;
+      setReceiptDate(validDate ? scan.date : today);
+    } catch (err) {
+      console.error("Receipt scan failed:", err);
+      setScanError(`Could not read that receipt (${String(err?.message || "unknown error").slice(0, 160)}). Try again, or add prices manually.`);
     }
     setScanLoading(false);
   };
@@ -51,8 +68,8 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
   const confirmReceipt = () => {
     const ready = (receiptItems || []).filter(it => it.ingredientId && it.amount && it.unit && it.price >= 0);
     if (!ready.length) { showBanner("Link at least one item before saving.", "error"); return; }
-    onSavePriceHistory(ready, receiptStore, receiptDate);
-    setReceiptItems(null); setReceiptStore("");
+    onSavePriceHistory(ready, storeChoice === "Other" ? receiptStore.trim() : storeChoice, receiptDate);
+    setReceiptItems(null); setReceiptStore(""); setStoreChoice("");
   };
 
   // Purchase recording state
@@ -154,7 +171,7 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
 
     // ── Scan receipt ──────────────────────────────────────────────────────────
     h("input", {
-      ref: fileInputRef, type: "file", accept: "image/*", capture: "environment",
+      ref: fileInputRef, type: "file", accept: "image/*", multiple: true,
       style: { display: "none" }, onChange: handleReceiptFile,
     }),
     h(Btn, {
@@ -171,9 +188,20 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
       h("div", { className: "font-bold font-serif mb-12", style: { fontSize: 15 } }, `Review Receipt (${receiptItems.length} items)`),
       h("div", { className: "text-xs muted", style: { marginBottom: 10 } }, "Link each item to a standard ingredient to save its price. Unlinked items are skipped."),
       h("div", { className: "flex gap-8", style: { marginBottom: 10 } },
-        h("input", { className: "form-input-sm", style: { flex: 1 }, value: receiptStore, onChange: e => setReceiptStore(e.target.value), placeholder: "Store (optional)" }),
+        h("select", {
+          className: "form-input-sm", style: { flex: 1, minWidth: 0 },
+          value: storeChoice, onChange: e => setStoreChoice(e.target.value),
+        },
+          h("option", { value: "" }, "Store (optional)"),
+          storeNames.map(s => h("option", { key: s, value: s }, s)),
+          h("option", { value: "Other" }, "Other…"),
+        ),
         h("input", { className: "form-input-sm", type: "date", style: { flexShrink: 0 }, value: receiptDate, onChange: e => setReceiptDate(e.target.value) }),
       ),
+      storeChoice === "Other" && h("input", {
+        className: "form-input-sm", style: { width: "100%", marginBottom: 10 },
+        value: receiptStore, onChange: e => setReceiptStore(e.target.value), placeholder: "Store name",
+      }),
       receiptItems.map(it =>
         h("div", { key: it.id, style: { display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", padding: "6px 0", borderBottom: "1px solid #F0E6D3" } },
           h(window.APP.IngredientSelect, {

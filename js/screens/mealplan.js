@@ -2,11 +2,15 @@
 window.APP = window.APP || {};
 const { createElement: h, useState } = React;
 const { Btn, Card, PillToggle, SectionHeader, EmptyState } = window.APP;
-const { uid, fmt$, callClaude, extractText, parseJSON, toggleInArray, plural } = window.APP.utils;
-const { MEAL_TYPES, MEAL_ICONS, PROTEINS } = window.APP;
+const { uid, fmt$, callClaude, extractText, parseJSON, toggleInArray, plural, scaleAmt, fmtIngredient } = window.APP.utils;
+const { MEAL_TYPES, MEAL_ICONS, PROTEINS, usePersist } = window.APP;
+
+const servingBtnStyle   = { background: "none", border: "1.5px solid #F0E6D3", borderRadius: 6, width: 22, height: 22, cursor: "pointer", color: "#7A6A55", fontSize: 14, lineHeight: 1, padding: 0 };
+const deductionRowStyle = { display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#7A6A55", cursor: "pointer", padding: "3px 0" };
+const deductionBoxStyle = { width: 14, height: 14, accentColor: "#2A7D4F", cursor: "pointer", flexShrink: 0 };
 
 // ── MealPlanScreen ────────────────────────────────────────────────────────────
-window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipes, cookHistory, onAddToGrocery, onAddMealPlanToGrocery, onMarkAsMade, onAddRecipeToMeal, requestPin, settings, saveSettings, myAppliances, addCost, showBanner, ingredients }) {
+window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipes, cookHistory, onAddToGrocery, onAddMealPlanToGrocery, onMarkAsMade, onUndoMarkAsMade, onAddRecipeToMeal, requestPin, settings, saveSettings, myAppliances, addCost, showBanner, ingredients, pantry }) {
 
   const [generating, setGenerating] = useState(false);
   const [genError,   setGenError]   = useState("");
@@ -16,7 +20,7 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
   const [locked,     setLocked]     = useState({});
   const [markingId,  setMarkingId]  = useState(null); // id of meal being marked as made
   const [markDate,   setMarkDate]   = useState(new Date().toISOString().split("T")[0]);
-  const [removeFromPantry, setRemoveFromPantry] = useState(true); // default checked when marking as made
+  const [skipDeductions, setSkipDeductions] = useState([]); // pantry ids unticked in the "mark as made" preview
   const [groceryLoading, setGroceryLoading] = useState(false);
   const [clearConfirm, setClearConfirm] = useState(false);
   const [viewingRecipe, setViewingRecipe] = useState(null); // { meal, recipe, loading, error }
@@ -219,7 +223,7 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
   };
 
   const acceptPlan = () => {
-    setMealPlan(mp => [...mp, ...proposed.map(p => ({ ...p, id: uid(), checked: false }))]);
+    setMealPlan(mp => [...mp, ...proposed.map(p => ({ ...p, id: uid(), checked: false, servings: people }))]);
     setProposed([]);
     setProposedAt(null);
     setLocked({});
@@ -243,21 +247,7 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
 
     setViewingRecipe({ meal, recipes: [], loading: true, error: "" });
     try {
-      const data = await callClaude({
-        maxTokens: 2000,
-        messages: [{
-          role: "user",
-          content: `Generate a full recipe for "${meal.name}"${meal.proteins?.length ? ` using ${meal.proteins.join(", ")}` : ""}. Return ONLY valid JSON, no markdown:
-{"name":"","course":"Main","proteins":[],"tags":[],"appliances":[],"servings":4,"prepTime":0,"cookTime":0,"ingredients":[{"id":"i1","name":"","amount":1,"unit":"","section":"Other"}],"steps":[],"notes":"","estimatedCost":0}`,
-        }],
-      });
-      const text   = extractText(data.content);
-      const parsed = parseJSON(text);
-      parsed.ingredients = window.APP.utils.linkIngredients(parsed.ingredients || [], ingredients).map(ing => ({
-        ...ing,
-        section: ing.section && ing.section !== "Other" ? ing.section : categorize(ing.name),
-      }));
-      const recipe = { ...parsed, id: uid(), photo: "", nutrition: {}, sourceLabel: "AI Generated" };
+      const recipe = await window.APP.utils.generateRecipeFor(meal, ingredients);
       recipeCache.current[meal.name] = recipe;
       setViewingRecipe({ meal, recipes: [recipe], loading: false, error: "" });
       addCost("recipeGen");
@@ -266,16 +256,23 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
     }
   };
 
+  // Saves the generated recipe and links it to the meal, so "→ Grocery" and
+  // "Mark as Made" use it directly (no second generation, no name matching).
   const saveGeneratedRecipe = () => {
     const recipe = viewingRecipe?.recipes?.[0];
+    const mealId = viewingRecipe?.meal?.id;
     if (!recipe) return;
     const exists = recipes.find(r => r.name.toLowerCase() === recipe.name.toLowerCase());
-    if (exists) { showBanner("Recipe already saved.", "success"); return; }
-    const toSave = { ...recipe, id: uid() };
-    setRecipes(rs => [...rs, toSave]);
-    showBanner("✓ Recipe saved!", "success");
+    const linkId = exists ? exists.id : recipe.id;
+    if (!exists) setRecipes(rs => [...rs, recipe]);
+    if (mealId) setMealPlan(mp => mp.map(m => m.id === mealId ? { ...m, recipeIds: [linkId] } : m));
+    showBanner(exists ? "Recipe already saved — linked to this meal." : "✓ Recipe saved!", "success");
     setViewingRecipe(v => ({ ...v, saved: true }));
   };
+
+  // Servings for a meal: its own count, or the linked recipe's for older entries.
+  const mealServings = m => m.servings || window.APP.utils.mealRecipes(m, recipes)[0]?.servings || settings.people || 2;
+  const setMealServings = (id, n) => setMealPlan(mp => mp.map(x => x.id === id ? { ...x, servings: Math.max(1, n) } : x));
 
   const toggleLock   = id => setLocked(l => ({ ...l, [id]: !l[id] }));
   const deleteMeal   = id => setMealPlan(mp => mp.filter(m => m.id !== id));
@@ -491,12 +488,17 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
               recipe.sourceLabel === "AI Generated" ? "✨ AI Generated" : `📎 ${recipe.sourceLabel}`
             ),
           ),
-          h("div", { className: "font-bold font-serif mb-8", style: { fontSize: 14 } }, "Ingredients"),
+          h("div", { className: "font-bold font-serif mb-8", style: { fontSize: 14 } }, "Ingredients",
+            recipe.servings && mealServings(viewingRecipe.meal) !== recipe.servings && h("span", { className: "muted", style: { fontWeight: 400, fontSize: 11, marginLeft: 6 } },
+              `scaled to ${mealServings(viewingRecipe.meal)} servings (recipe makes ${recipe.servings})`),
+          ),
           h(Card, { style: { marginBottom: 12 } },
-            (recipe.ingredients || []).map(ing =>
-              h("div", { key: ing.id, className: "flex-between divider", style: { padding: "5px 0", fontSize: 13 } },
+            (recipe.ingredients || []).map((ing, i) =>
+              h("div", { key: ing.id || i, className: "flex-between divider", style: { padding: "5px 0", fontSize: 13 } },
                 h("span", null, ing.name),
-                h("span", { className: "muted" }, `${ing.amount} ${ing.unit}`),
+                h("span", { className: "muted" }, fmtIngredient(
+                  window.APP.utils.hasQty(ing) && recipe.servings ? scaleAmt(parseFloat(ing.amount), recipe.servings, mealServings(viewingRecipe.meal)) : ing.amount,
+                  ing.unit)),
               )
             ),
           ),
@@ -561,6 +563,19 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
                     (m.proteins || []).join(", "),
                     m.estimatedCost ? ` · ${fmt$(m.estimatedCost)}` : "",
                     m.checked && m.checkedAt && ` · Made ${new Date(m.checkedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`,
+                    m.checked && m.madeInfo && h("button", {
+                      onClick: () => onUndoMarkAsMade(m),
+                      title: "Un-mark as made and put pantry amounts back",
+                      style: { background: "none", border: "none", cursor: "pointer", color: "#D4622A", fontSize: 12, fontWeight: 600, marginLeft: 6, padding: 0, fontFamily: "'DM Sans',sans-serif" },
+                    }, "↺ Undo"),
+                  ),
+                  // Servings — groceries and pantry use are scaled to this
+                  !m.checked && h("div", { className: "flex-center gap-6", style: { marginTop: 4, fontSize: 12, color: "#7A6A55" } },
+                    "👥",
+                    h("button", { onClick: () => setMealServings(m.id, mealServings(m) - 1), style: servingBtnStyle, title: "Fewer servings" }, "−"),
+                    h("span", { style: { fontWeight: 600, minWidth: 16, textAlign: "center" } }, mealServings(m)),
+                    h("button", { onClick: () => setMealServings(m.id, mealServings(m) + 1), style: servingBtnStyle, title: "More servings" }, "+"),
+                    "servings",
                   ),
                 ),
                 h("button", {
@@ -596,55 +611,76 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
                 ),
               ),
 
-              // Groceries-already-added toggle (skipped by "→ Grocery" when on)
+              // Grocery status. "Covered" = skip this meal in "→ Grocery" (you already have it
+              // handled). Meals already sent stay counted, so adding another meal later
+              // doesn't make the pantry look free for both.
               !m.checked && h("button", {
                 onClick: () => setMealPlan(mp => mp.map(x => x.id === m.id ? { ...x, groceriesAdded: !x.groceriesAdded } : x)),
-                title: m.groceriesAdded ? "Groceries already added — tap to undo" : "Tap if the groceries for this are already covered",
+                title: m.groceriesAdded
+                  ? "Marked covered — skipped by → Grocery. Tap to include it again."
+                  : "Tap if groceries for this are already handled — → Grocery will skip it",
                 style: {
                   marginTop: 8, marginRight: 8, padding: "4px 10px", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer",
                   fontFamily: "'DM Sans',sans-serif",
-                  border: `1.5px solid ${m.groceriesAdded ? "#2A7D4F" : "#F0E6D3"}`,
-                  background: m.groceriesAdded ? "#E8F4EC" : "#FFF8F0",
-                  color: m.groceriesAdded ? "#2A7D4F" : "#7A6A55",
+                  border: `1.5px solid ${m.groceriesAdded || m.sentToGrocery ? "#2A7D4F" : "#F0E6D3"}`,
+                  background: m.groceriesAdded || m.sentToGrocery ? "#E8F4EC" : "#FFF8F0",
+                  color: m.groceriesAdded || m.sentToGrocery ? "#2A7D4F" : "#7A6A55",
                 },
-              }, m.groceriesAdded ? "🛒 Groceries added ✓" : "🛒 Groceries not added"),
+              }, m.groceriesAdded ? "🛒 Covered — skipped ✓" : m.sentToGrocery ? "🛒 On grocery list ✓" : "🛒 Groceries not added"),
 
-              // Mark as Made button (only if not already checked)
+              // Mark as Made — preview exactly what comes out of the pantry, untick anything you didn't use
               !m.checked && h("div", { style: { marginTop: 8, display: "flex", gap: 8, alignItems: "center" } },
-                // Show date input inline when marking
                 markingId === m.id
-                  ? h("div", { style: { flex: 1, display: "flex", flexDirection: "column", gap: 6 } },
-                      h("div", { style: { display: "flex", gap: 8 } },
-                        h("input", {
-                          type: "date",
-                          value: markDate,
-                          onChange: e => setMarkDate(e.target.value),
-                          style: { flex: 1, padding: "6px 10px", borderRadius: 8, border: "1.5px solid #F0E6D3", fontSize: 13, outline: "none", background: "#FFF8F0", fontFamily: "'DM Sans',sans-serif" },
-                        }),
-                        h(Btn, {
-                          label: "Confirm",
-                          onClick: () => { onMarkAsMade(m, markDate, removeFromPantry); setMarkingId(null); },
-                          style: { fontSize: 12, padding: "6px 12px" },
-                        }),
-                        h(Btn, {
-                          label: "Cancel",
-                          variant: "ghost",
-                          onClick: () => setMarkingId(null),
-                          style: { fontSize: 12, padding: "6px 10px" },
-                        }),
-                      ),
-                      h("label", { style: { display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#7A6A55", cursor: "pointer" } },
-                        h("input", {
-                          type: "checkbox",
-                          checked: removeFromPantry,
-                          onChange: e => setRemoveFromPantry(e.target.checked),
-                          style: { width: 14, height: 14, accentColor: "#2A7D4F", cursor: "pointer" },
-                        }),
-                        "Remove ingredients from pantry",
-                      ),
-                    )
+                  ? (() => {
+                      const rows = window.APP.utils.planDeductions({ ...m, servings: mealServings(m) }, recipes, pantry || []);
+                      const chosen = rows.filter(r => !skipDeductions.includes(r.pantryId));
+                      const allOn = chosen.length === rows.length;
+                      return h("div", { style: { flex: 1, display: "flex", flexDirection: "column", gap: 6 } },
+                        h("div", { style: { display: "flex", gap: 8 } },
+                          h("input", {
+                            type: "date",
+                            value: markDate,
+                            onChange: e => setMarkDate(e.target.value),
+                            style: { flex: 1, padding: "6px 10px", borderRadius: 8, border: "1.5px solid #F0E6D3", fontSize: 13, outline: "none", background: "#FFF8F0", fontFamily: "'DM Sans',sans-serif" },
+                          }),
+                          h(Btn, {
+                            label: "Confirm",
+                            onClick: () => { onMarkAsMade({ ...m, servings: mealServings(m) }, markDate, chosen); setMarkingId(null); },
+                            style: { fontSize: 12, padding: "6px 12px" },
+                          }),
+                          h(Btn, {
+                            label: "Cancel",
+                            variant: "ghost",
+                            onClick: () => setMarkingId(null),
+                            style: { fontSize: 12, padding: "6px 10px" },
+                          }),
+                        ),
+                        rows.length === 0
+                          ? h("div", { className: "muted text-xs" }, "Nothing to take out of the pantry for this meal.")
+                          : h("div", { style: { background: "#FFF8F0", borderRadius: 8, padding: "6px 10px" } },
+                              h("label", { style: deductionRowStyle },
+                                h("input", { type: "checkbox", checked: allOn, onChange: () => setSkipDeductions(allOn ? rows.map(r => r.pantryId) : []), style: deductionBoxStyle }),
+                                h("span", { style: { fontWeight: 600 } }, "Remove from pantry:"),
+                              ),
+                              rows.map(r => {
+                                const on = !skipDeductions.includes(r.pantryId);
+                                return h("label", { key: r.pantryId, style: { ...deductionRowStyle, opacity: on ? 1 : 0.5 } },
+                                  h("input", {
+                                    type: "checkbox", checked: on, style: deductionBoxStyle,
+                                    onChange: () => setSkipDeductions(ids => on ? [...ids, r.pantryId] : ids.filter(x => x !== r.pantryId)),
+                                  }),
+                                  h("span", { style: { flex: 1 } }, r.name),
+                                  h("span", { className: "muted" },
+                                    `${fmtIngredient(r.before, r.unit)} → `,
+                                    r.after === 0 ? h("span", { className: "warn", style: { fontWeight: 600 } }, "out") : fmtIngredient(r.after, r.unit),
+                                  ),
+                                );
+                              }),
+                            ),
+                      );
+                    })()
                   : h("button", {
-                      onClick: () => { setMarkingId(m.id); setMarkDate(new Date().toISOString().split("T")[0]); setRemoveFromPantry(true); },
+                      onClick: () => { setMarkingId(m.id); setMarkDate(new Date().toISOString().split("T")[0]); setSkipDeductions([]); },
                       style: { background: "none", border: "1.5px solid #2A7D4F", borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 600, color: "#2A7D4F", cursor: "pointer", fontFamily: "'DM Sans',sans-serif" },
                     }, "✓ Mark as Made"),
               ),

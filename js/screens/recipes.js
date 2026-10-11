@@ -30,6 +30,7 @@ window.APP.RecipesScreen = function({ recipes, setRecipes, onAddToMealPlan, onAd
   const [newTagPrompt,  setNewTagPrompt]  = useState(null); // tag just saved that's new to the whole library
   const [auditingTag,   setAuditingTag]   = useState(null); // tag currently being AI-checked
   const [addingMealType, setAddingMealType] = useState(null); // recipe pending meal-type selection before adding to plan
+  const [addingServings, setAddingServings] = useState(null); // servings chosen in the detail view, if any
 
   const allTags = [...new Set(recipes.flatMap(r => r.tags || []))].sort();
   const activeFilterCount = filterCourses.length + filterProteins.length + filterAppliances.length + filterMealTypes.length + filterTags.length;
@@ -82,9 +83,10 @@ window.APP.RecipesScreen = function({ recipes, setRecipes, onAddToMealPlan, onAd
     if (newTags.length) setNewTagPrompt(newTags[0]);
   };
 
-  const requestAddToMealPlan = recipe => setAddingMealType(recipe);
+  // servings comes from the detail view's stepper; the card quick-add uses the recipe as written
+  const requestAddToMealPlan = (recipe, servings) => { setAddingMealType(recipe); setAddingServings(servings || null); };
   const confirmAddToMealPlan = mealType => {
-    onAddToMealPlan(addingMealType, mealType);
+    onAddToMealPlan(addingMealType, mealType, addingServings);
     showBanner(`✓ ${addingMealType.name} added to meal plan`, "success");
     setAddingMealType(null);
   };
@@ -112,16 +114,14 @@ window.APP.RecipesScreen = function({ recipes, setRecipes, onAddToMealPlan, onAd
         messages: [{
           role: "user",
           content: `Extract the recipe from this URL. Return ONLY valid JSON, no markdown:
-{"name":"","course":"Main","proteins":[],"tags":[],"appliances":[],"servings":4,"prepTime":0,"cookTime":0,"ingredients":[{"id":"i1","name":"","amount":1,"unit":"","section":"Other"}],"steps":[],"notes":"","estimatedCost":0}
+{"name":"","course":"Main","proteins":[],"tags":[],"appliances":[],"servings":4,"prepTime":0,"cookTime":0,"ingredients":[{"name":"","amount":1,"unit":"","description":"","section":"Other"}],"steps":[],"notes":"","estimatedCost":0}
+${window.APP.utils.recipeFormatRules()} Put prep words (e.g. "diced") in "description", not "name".
 URL: ${importUrl.trim()}`,
         }],
       });
       const text   = extractText(data.content);
       const parsed = parseJSON(text);
-      parsed.ingredients = window.APP.utils.linkIngredients(parsed.ingredients || [], ingredients).map(ing => ({
-        ...ing,
-        section: ing.section && ing.section !== "Other" ? ing.section : categorize(ing.name),
-      }));
+      parsed.ingredients = window.APP.utils.cleanIngredients(parsed.ingredients, ingredients);
       setActive({ ...parsed, id: uid(), photo: "", nutrition: {} });
       addCost("recipeImport");
       setImporting(false);
@@ -143,23 +143,12 @@ URL: ${importUrl.trim()}`,
     setPhotoLoading(true); setPhotoError("");
     try {
       const { resizeImageToBase64, scanRecipePhotos } = window.APP.utils;
-      const { UNITS } = window.APP;
       const images = await Promise.all(files.map(f => resizeImageToBase64(f)));
       const p = await scanRecipePhotos(images, allTags);
       addCost("recipePhotoScan");
 
       // Clean up Claude's output so it can't put invalid values in the editor
-      const rawIngs = (p.ingredients || []).filter(i => i && i.name).map(i => {
-        const amt = parseFloat(i.amount);
-        return {
-          id: uid(), name: String(i.name).trim(), description: i.description || "",
-          amount: isNaN(amt) ? "" : amt,
-          unit: UNITS.includes(i.unit) ? i.unit : "",
-          section: "Other",
-        };
-      });
-      const linked = window.APP.utils.linkIngredients(rawIngs, ingredients)
-        .map(ing => ({ ...ing, section: categorize(ing.name) }));
+      const linked = window.APP.utils.cleanIngredients(p.ingredients, ingredients);
 
       setActive({
         id: uid(),
@@ -437,7 +426,7 @@ function RecipeDetail({ recipe, onBack, onEdit, onDelete, onHide, onAddToMealPla
     h("div", { className: "flex gap-10 wrap", style: { marginBottom: 8 } },
       h(Btn, {
         label: "Add to Meal Plan", icon: "🗓", style: { flex: 1 },
-        onClick: () => onAddToMealPlan(recipe),
+        onClick: () => onAddToMealPlan(recipe, servings),
       }),
       h(Btn, { label: "Add to Grocery", icon: "🛒", variant: "accent", style: { flex: 1 }, onClick: () => onAddToGrocery(recipe, servings) }),
     ),

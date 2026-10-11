@@ -77,21 +77,20 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
   const [purchaseAmount, setPurchaseAmount] = useState("");
   const [purchaseNote,   setPurchaseNote]   = useState("");
   const [showHistory,    setShowHistory]    = useState(false);
+  const [clearPrompt,    setClearPrompt]    = useState(false); // "add checked items to pantry before clearing?"
 
   // ── Item actions ────────────────────────────────────────────────────────────
   const addItem = () => {
     if (!selectedIng) return;
-    const section = categorize(selectedIng.name);
-    setGroceryList(l => [...l, {
-      id:      uid(),
+    // Merges into an existing unchecked line for the same ingredient (summing qty)
+    setGroceryList(l => window.APP.utils.mergeIntoList(l, [{
       name:    selectedIng.name,
       ingredientId: selectedIng.id,
-      section,
-      checked: false,
+      section: categorize(selectedIng.name),
       amount:  qty.trim() ? +qty : "",
       unit,
       misc:    true,
-    }]);
+    }]));
     setSelectedIng(null);
     setQty("");
     setUnit("");
@@ -108,31 +107,57 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
       : i));
     setEditingId(null);
   };
-  const clearChecked = ()  => setGroceryList(l => l.filter(i => !i.checked));
+  const clearChecked = ()  => { setGroceryList(l => l.filter(i => !i.checked)); setClearPrompt(false); };
   const clearAll     = ()  => setGroceryList([]);
 
   // ── Staple actions ──────────────────────────────────────────────────────────
+  // The checkbox shows whether the item is on the list at all. Unchecking only
+  // removes lines added as a staple — not the same item added for a recipe.
+  const { sameIngredient } = window.APP.utils;
+  const stapleOnList = s => groceryList.some(i => sameIngredient(i, s));
   const toggleStaple = (staple, checked) => {
     if (checked) {
-      setGroceryList(l => [...l, { id: uid(), name: staple.name, section: staple.section, checked: false, amount: "", unit: "", staple: true }]);
+      setGroceryList(l => l.some(i => !i.checked && sameIngredient(i, staple))
+        ? l
+        : [...l, { id: uid(), name: staple.name, section: staple.section, checked: false, amount: "", unit: "", staple: true }]);
     } else {
-      setGroceryList(l => l.filter(i => i.name !== staple.name));
+      const fromRecipes = groceryList.some(i => !i.staple && sameIngredient(i, staple));
+      setGroceryList(l => l.filter(i => !(i.staple && sameIngredient(i, staple))));
+      if (fromRecipes) showBanner(`${staple.name} is still on the list for a recipe — remove it there if you don't need it.`, "error", 3500);
     }
   };
   const addStaple    = name => { const t = name.trim(); if (!t) return; setStaples(s => [...s, { id: uid(), name: t, section: categorize(t) }]); };
   const removeStaple = id   => setStaples(s => s.filter(x => x.id !== id));
 
   // ── Purchase recording ──────────────────────────────────────────────────────
+  // Moves checked items into the pantry and off the list. The spending total is
+  // optional — record it if you have it, skip it if you don't.
+  const moveCheckedToPantry = () => {
+    const bought = groceryList.filter(i => i.checked);
+    if (!bought.length) return 0;
+    if (onCompleteList) onCompleteList(bought);
+    setGroceryList(l => l.filter(i => !i.checked)); // remove only the items just purchased; leave unchecked ones
+    return bought.length;
+  };
+
   const handleRecordPurchase = () => {
     const amt = parseFloat(purchaseAmount);
-    if (!amt || amt <= 0) return;
-    onRecordPurchase(amt, purchaseNote);
-    if (onCompleteList) onCompleteList(groceryList.filter(i => i.checked));
-    setGroceryList(l => l.filter(i => !i.checked)); // remove only the items just purchased; leave unchecked ones
+    const hasTotal = amt > 0;
+    if (hasTotal) onRecordPurchase(amt, purchaseNote);
+    const n = moveCheckedToPantry();
     setPurchaseAmount("");
     setPurchaseNote("");
     setShowPurchase(false);
-    showBanner(`✓ Purchase of ${fmt$(amt)} recorded — checked items added to pantry`, "success");
+    setClearPrompt(false);
+    showBanner(hasTotal
+      ? `✓ ${fmt$(amt)} recorded — ${n} item${n === 1 ? "" : "s"} added to pantry`
+      : `✓ ${n} item${n === 1 ? "" : "s"} added to pantry`, "success");
+  };
+
+  const handleAddCheckedToPantry = () => {
+    const n = moveCheckedToPantry();
+    setClearPrompt(false);
+    showBanner(`✓ ${n} item${n === 1 ? "" : "s"} added to pantry`, "success");
   };
 
   // Spending summary
@@ -150,7 +175,8 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
 
   // ── Grouping ────────────────────────────────────────────────────────────────
   const grouped = SECTIONS.reduce((acc, s) => {
-    const items = groceryList.filter(i => i.section === s);
+    // unknown sections fall under "Other" so nothing is hidden
+    const items = groceryList.filter(i => (SECTIONS.includes(i.section) ? i.section : "Other") === s);
     if (items.length) acc[s] = items;
     return acc;
   }, {});
@@ -162,9 +188,19 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
     h(SectionHeader, {
       title: "Grocery List",
       action: checkedCount > 0
-        ? h(Btn, { label: `Clear ${checkedCount} ✓`, variant: "ghost", onClick: clearChecked, className: "btn-sm" })
+        ? h(Btn, { label: `Clear ${checkedCount} ✓`, variant: "ghost", onClick: () => setClearPrompt(true), className: "btn-sm" })
         : null,
     }),
+
+    // Clear checked — offer to move them to the pantry first so purchases aren't lost
+    clearPrompt && checkedCount > 0 && h(Card, { style: { marginBottom: 16, border: "2px solid #2A7D4F" } },
+      h("div", { className: "font-bold mb-8", style: { fontSize: 14 } }, `Add ${checkedCount} checked item${checkedCount === 1 ? "" : "s"} to your pantry before clearing?`),
+      h("div", { className: "flex gap-8" },
+        h(Btn, { label: "Cancel", variant: "ghost", onClick: () => setClearPrompt(false), style: { flex: 1 } }),
+        h(Btn, { label: "Just Clear", variant: "danger", onClick: clearChecked, style: { flex: 1 } }),
+        h(Btn, { label: "Add to Pantry", variant: "accent", onClick: handleAddCheckedToPantry, style: { flex: 1 } }),
+      ),
+    ),
 
     // Sync indicator
     h(SyncIndicator),
@@ -269,7 +305,7 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
           h("div", { key: s.id, style: { display: "flex", alignItems: "center", gap: 10, padding: "6px 0", borderBottom: "1px solid #F0E6D3" } },
             h("input", {
               type: "checkbox",
-              checked: !!groceryList.find(i => i.name === s.name),
+              checked: stapleOnList(s),
               onChange: e => toggleStaple(s, e.target.checked),
               style: { width: 18, height: 18, accentColor: "#D4622A", cursor: "pointer" },
             }),
@@ -356,10 +392,12 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
 
     // Mark as purchased panel
     showPurchase && h(Card, { style: { marginBottom: 16, border: "2px solid #2A7D4F" } },
-      h("div", { className: "font-bold font-serif mb-12", style: { fontSize: 15 } }, "🏷 Record Purchase"),
+      h("div", { className: "font-bold font-serif mb-8", style: { fontSize: 15 } }, "🏷 Purchased"),
+      h("div", { className: "muted text-sm", style: { marginBottom: 12 } },
+        `${checkedCount} checked item${checkedCount === 1 ? "" : "s"} will move to your pantry. Add the total to track spending, or leave it blank.`),
       h("div", { className: "flex gap-8", style: { marginBottom: 10 } },
         h("div", { style: { flex: 1 } },
-          h("div", { className: "form-label" }, "Total Amount ($)"),
+          h("div", { className: "form-label" }, "Total Amount ($) — optional"),
           h("input", {
             className: "form-input",
             type: "number", min: "0", step: "0.01",
@@ -382,7 +420,7 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
       ),
       h("div", { className: "flex gap-8" },
         h(Btn, { label: "Cancel", variant: "ghost", onClick: () => setShowPurchase(false), style: { flex: 1 } }),
-        h(Btn, { label: "Save Purchase", variant: "accent", onClick: handleRecordPurchase, style: { flex: 1 } }),
+        h(Btn, { label: parseFloat(purchaseAmount) > 0 ? "Save & Move to Pantry" : "Move to Pantry", variant: "accent", onClick: handleRecordPurchase, style: { flex: 1 } }),
       ),
     ),
 

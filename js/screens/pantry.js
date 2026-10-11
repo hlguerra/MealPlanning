@@ -7,7 +7,7 @@ const { categorize } = window.APP;
 const { SECTIONS } = window.APP;
 
 // ── PantryScreen ──────────────────────────────────────────────────────────────
-window.APP.PantryScreen = function({ pantry, setPantry, addCost, knownIngredientNames, ingredients, addNewIngredient, recipes, setRecipes, onAddToMealPlan, showBanner }) {
+window.APP.PantryScreen = function({ pantry, setPantry, addCost, knownIngredientNames, ingredients, addNewIngredient, recipes, setRecipes, onAddToMealPlan, showBanner, groceryList, onAddToGrocery, onAddToPantry, staples, setStaples }) {
   const [selectedIng, setSelectedIng] = useState(null); // { id, name }
   const [amount,  setAmount]  = useState("");
   const [unit,    setUnit]    = useState("");
@@ -25,9 +25,10 @@ window.APP.PantryScreen = function({ pantry, setPantry, addCost, knownIngredient
   // ── Item actions (no PIN required) ─────────────────────────────────────────
   const addItem = () => {
     if (!selectedIng) return;
-    const section = categorize(selectedIng.name);
-    setPantry(p => [...p, {
-      id: uid(), name: selectedIng.name, ingredientId: selectedIng.id, section,
+    // Same restock rules as a grocery purchase: tops up a matching entry (or an
+    // "out" one) instead of adding a duplicate line.
+    onAddToPantry([{
+      name: selectedIng.name, ingredientId: selectedIng.id, section: categorize(selectedIng.name),
       amount: amount.trim() ? +amount : "",
       unit,
     }]);
@@ -69,23 +70,13 @@ window.APP.PantryScreen = function({ pantry, setPantry, addCost, knownIngredient
         content: `Write a full recipe for "${s.name}". Build it mainly from ingredients the person already has: ${(s.canMakeWith || []).join(", ")}${s.missing?.length ? `. They still need: ${s.missing.join(", ")}` : ""}.${s.notes ? ` Context: ${s.notes}` : ""}
 Return ONLY valid JSON, no markdown:
 {"name":"","course":"Main","proteins":[],"mealTypes":[],"tags":[],"appliances":[],"servings":4,"prepTime":0,"cookTime":0,"ingredients":[{"name":"","amount":1,"unit":"","description":""}],"steps":[],"notes":"","estimatedCost":0}
-Rules: "amount" is a number only. "unit" is exactly one of [${UNITS.join(", ")}] or "". "course" is one of [${COURSES.join(", ")}]. "proteins": zero or more of [${PROTEINS.join(", ")}]. "mealTypes": zero or more of [${MEAL_TYPES.join(", ")}]. "appliances": zero or more of [${APPLIANCES.join(", ")}]. "tags": 0-4 short tags. "steps": one string per step, no numbers.`,
+${window.APP.utils.recipeFormatRules()} "course" is one of [${COURSES.join(", ")}]. "proteins": zero or more of [${PROTEINS.join(", ")}]. "mealTypes": zero or more of [${MEAL_TYPES.join(", ")}]. "appliances": zero or more of [${APPLIANCES.join(", ")}]. "tags": 0-4 short tags. "steps": one string per step, no numbers.`,
       }],
     });
     addCost("recipeGen");
     const p = parseJSON(extractText(data.content));
 
-    const rawIngs = (p.ingredients || []).filter(i => i && i.name).map(i => {
-      const amt = parseFloat(i.amount);
-      return {
-        id: uid(), name: String(i.name).trim(), description: i.description || "",
-        amount: isNaN(amt) ? "" : amt,
-        unit: UNITS.includes(i.unit) ? i.unit : "",
-        section: "Other",
-      };
-    });
-    const linked = window.APP.utils.linkIngredients(rawIngs, ingredients || [])
-      .map(ing => ({ ...ing, section: categorize(ing.name) }));
+    const linked = window.APP.utils.cleanIngredients(p.ingredients, ingredients || []);
 
     const recipe = {
       id: uid(), createdAt: Date.now(), name: s.name,
@@ -158,9 +149,36 @@ Return ONLY a valid JSON array, no markdown fences:
     setLoading(false);
   };
 
+  // ── Out of stock ────────────────────────────────────────────────────────────
+  // amount 0 = used up (e.g. by "Mark as Made"). Blank = not tracked, which counts as on hand.
+  // Only staples stay listed at 0 — everything else is removed when used up (see app.js)
+  const isOut    = item => item.amount === 0 || item.amount === "0";
+  const isStaple = item => (staples || []).some(s => window.APP.utils.sameIngredient(s, item));
+  const toggleStaple = item => {
+    if (isStaple(item)) {
+      setStaples(st => st.filter(s => !window.APP.utils.sameIngredient(s, item)));
+      showBanner(isOut(item) ? `${item.name} unpinned — removed since it's out` : `${item.name} unpinned`, "success");
+    } else {
+      setStaples(st => [...st, { id: uid(), name: item.name, section: item.section || categorize(item.name) }]);
+      showBanner(`📌 ${item.name} pinned — it'll stay listed when it runs out`, "success");
+    }
+  };
+  const onList   = item => (groceryList || []).some(g => !g.checked && window.APP.utils.sameIngredient(g, item));
+  const addToList = item => {
+    onAddToGrocery([{ name: item.name, ingredientId: item.ingredientId || null, section: item.section, amount: "", unit: "" }]);
+    showBanner(`✓ ${item.name} added to grocery list`, "success");
+  };
+  const outItems = pantry.filter(isOut);
+  const outNotOnList = outItems.filter(i => !onList(i));
+
   // ── Grouping ────────────────────────────────────────────────────────────────
+  // Unknown sections fall under "Other" so nothing goes missing. Within a section:
+  // use-soon first, out-of-stock last.
+  const rank = i => (isOut(i) ? 2 : 0) - (i.useSoon ? 1 : 0);
   const grouped = SECTIONS.reduce((acc, s) => {
-    const items = pantry.filter(i => i.section === s).sort((a, b) => (b.useSoon ? 1 : 0) - (a.useSoon ? 1 : 0));
+    const items = pantry
+      .filter(i => (SECTIONS.includes(i.section) ? i.section : "Other") === s)
+      .sort((a, b) => rank(a) - rank(b));
     if (items.length) acc[s] = items;
     return acc;
   }, {});
@@ -265,6 +283,20 @@ Return ONLY a valid JSON array, no markdown fences:
       sub: "Add items to track what you have on hand",
     }),
 
+    // ── Out of stock summary ─────────────────────────────────────────────────
+    outNotOnList.length > 1 && h(Card, { style: { marginBottom: 14, background: "#FFF0EE", border: "1.5px solid #F0C0BB" } },
+      h("div", { className: "flex-between" },
+        h("div", { className: "text-sm" }, `${outNotOnList.length} items are out and not on your grocery list.`),
+        h(Btn, {
+          label: "Add all", variant: "accent", className: "btn-sm",
+          onClick: () => {
+            onAddToGrocery(outNotOnList.map(i => ({ name: i.name, ingredientId: i.ingredientId || null, section: i.section, amount: "", unit: "" })));
+            showBanner(`✓ Added ${outNotOnList.length} items to grocery list`, "success");
+          },
+        }),
+      ),
+    ),
+
     // ── Grouped inventory ─────────────────────────────────────────────────────
     Object.entries(grouped).map(([section, items]) =>
       h("div", { key: section, style: { marginBottom: 14 } },
@@ -302,15 +334,29 @@ Return ONLY a valid JSON array, no markdown fences:
                     title: "Save",
                   }, "✓"),
                 )
-              : h("span", { onClick: () => startEdit(item), style: { flex: 1, fontSize: 14, cursor: "pointer" } },
+              : h("span", { onClick: () => startEdit(item), style: { flex: 1, fontSize: 14, cursor: "pointer", color: isOut(item) ? "#7A6A55" : undefined } },
                   item.name,
-                  item.amount ? ` — ${item.amount}${item.unit ? " " + item.unit : ""}` : "",
+                  isOut(item)
+                    ? h("span", { className: "warn text-xs", style: { marginLeft: 6, fontWeight: 600 } }, "out")
+                    : item.amount ? ` — ${item.amount}${item.unit ? " " + item.unit : ""}` : "",
                 ),
+            editingId !== item.id && isOut(item) && (onList(item)
+              ? h("span", { className: "muted text-xs", style: { flexShrink: 0 } }, "🛒 on list")
+              : h("button", {
+                  onClick: () => addToList(item),
+                  title: "Add to grocery list",
+                  style: { background: "#E8F4EC", border: "1.5px solid #2A7D4F", borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 600, color: "#2A7D4F", padding: "2px 8px", flexShrink: 0, fontFamily: "'DM Sans',sans-serif" },
+                }, "+ 🛒")),
             h("button", {
               onClick: () => setPantry(p => p.map(i => i.id === item.id ? { ...i, useSoon: !i.useSoon } : i)),
               title: item.useSoon ? "Marked use soon — tap to clear" : "Mark as use soon",
               style: { background: item.useSoon ? "#FDE8D8" : "none", border: `1.5px solid ${item.useSoon ? "#D4622A" : "#F0E6D3"}`, borderRadius: 8, cursor: "pointer", fontSize: 14, padding: "2px 6px", opacity: item.useSoon ? 1 : 0.5 },
             }, "⏰"),
+            h("button", {
+              onClick: () => toggleStaple(item),
+              title: isStaple(item) ? "Staple — stays listed when out. Tap to unpin." : "Pin as a staple so it stays listed when it runs out",
+              style: { background: isStaple(item) ? "#FDE8D8" : "none", border: `1.5px solid ${isStaple(item) ? "#D4622A" : "#F0E6D3"}`, borderRadius: 8, cursor: "pointer", fontSize: 14, padding: "2px 6px", opacity: isStaple(item) ? 1 : 0.5 },
+            }, "📌"),
             h("button", {
               onClick: () => removeItem(item.id),
               style: { background: "none", border: "none", cursor: "pointer", color: "#C0392B", fontSize: 18, opacity: 0.5 },

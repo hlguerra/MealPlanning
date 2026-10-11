@@ -87,8 +87,22 @@ function App() {
     });
   }, [groceryList, recipes, costLog, spending, cookHistory, mealPlan, pantry, staples, myAppliances, settings, ingredients, priceHistory, settings.householdId]);
 
+  // ── Used-up pantry items ─────────────────────────────────────────────────────
+  // When something hits 0 it disappears from the pantry — unless it's a staple
+  // (📌), which stays visible as "out" so you know to restock it. Runs on every
+  // pantry/staples change, so it covers Mark as Made, manual edits, and sync.
+  useEffect(() => {
+    const { sameIngredient, hasQty } = window.APP.utils;
+    const isOut    = pi => hasQty(pi) && parseFloat(pi.amount) === 0;
+    const isStaple = pi => staples.some(s => sameIngredient(s, pi));
+    if (pantry.some(pi => isOut(pi) && !isStaple(pi))) {
+      setPantry(p => p.filter(pi => !(isOut(pi) && !isStaple(pi))));
+    }
+  }, [pantry, staples, setPantry]);
+
   // ── Add recipe to meal plan ──────────────────────────────────────────────────
-  const addToMealPlan = useCallback((recipe, mealType) => {
+  // servings defaults to the recipe as written; groceries and pantry use are scaled to it.
+  const addToMealPlan = useCallback((recipe, mealType, servings) => {
     setMealPlan(mp => [
       ...mp,
       {
@@ -100,9 +114,10 @@ function App() {
         estimatedCost: recipe.estimatedCost || 0,
         checked:       false,
         recipeIds:     recipe.id ? [recipe.id] : [],
+        servings:      servings || recipe.servings || settings.people || 2,
       },
     ]);
-  }, [setMealPlan]);
+  }, [setMealPlan, settings.people]);
 
   // ── Link an additional saved recipe to an existing meal plan entry (combo meals) ──
   const addRecipeToMeal = useCallback((mealId, recipe) => {
@@ -121,31 +136,25 @@ function App() {
     showBanner(`✓ Added ${recipe.name}`, "success");
   }, [setMealPlan, showBanner]);
 
-  // ── Add recipe ingredients to grocery list ───────────────────────────────────
+  // ── Add one recipe's ingredients to grocery list (Recipes screen) ────────────
+  // Subtracts what's in the pantry, then sums into matching list items. Only the
+  // pantry is checked here (not the list) — the list may already hold the same
+  // ingredient for other meals, and this is an extra batch on top of those.
+  // Stays on the current screen so several recipes can be added in a row.
   const addToGrocery = useCallback((recipe, servings) => {
-    const scaledItems = (recipe.ingredients || []).map(ing => ({
-      id:      uid(),
-      name:    ing.name,
-      ingredientId: ing.ingredientId || null,
-      amount:  scaleAmt(ing.amount, recipe.servings, servings),
-      unit:    ing.unit || "",
-      section: ing.section || categorize(ing.name),
-      checked: false,
-    }));
+    const { combineIngredients, shortfall, mergeIntoList, recipeIngredients } = window.APP.utils;
+    const needed = combineIngredients(recipeIngredients(recipe, servings));
+    const toBuy  = shortfall(needed, pantry);
+    if (!toBuy.length) { showBanner(`Everything for ${recipe.name} is already in your pantry`, "success"); return; }
+    setGroceryList(l => mergeIntoList(l, toBuy));
+    const covered = needed.length - toBuy.length;
+    showBanner(`✓ Added ${toBuy.length} item${toBuy.length === 1 ? "" : "s"} to grocery list${covered ? ` — ${covered} already in pantry` : ""}`, "success");
+  }, [pantry, setGroceryList, showBanner]);
 
-    setGroceryList(l => {
-      const merged = [...l];
-      scaledItems.forEach(ni => {
-        if (!merged.find(i => window.APP.utils.sameIngredient(i, ni))) {
-          merged.push(ni);
-        }
-      });
-      return merged;
-    });
-
-    showBanner("✓ Ingredients added to grocery list", "success");
-    setScreen("grocery");
-  }, [setGroceryList, showBanner]);
+  // ── Add plain items to grocery list (Pantry "out of stock" button) ───────────
+  const addItemsToGrocery = useCallback(items => {
+    setGroceryList(l => window.APP.utils.mergeIntoList(l, items));
+  }, [setGroceryList]);
 
   // ── Save reviewed receipt items to price history ─────────────────────────────
   // Only called after the person confirms/links each item — never auto-saved.
@@ -171,7 +180,7 @@ function App() {
 
   // ── Quick add (home screen) ──────────────────────────────────────────────────
   const quickAddGrocery = useCallback(item => {
-    setGroceryList(l => [...l, item]);
+    setGroceryList(l => window.APP.utils.mergeIntoList(l, [item]));
   }, [setGroceryList]);
 
   // ── Known ingredient names for autocomplete (recipes + pantry + grocery) ────
@@ -183,162 +192,185 @@ function App() {
     return [...names];
   }, [recipes, pantry, groceryList]);
 
-  // ── Add all meal-plan ingredients to grocery list ─────────────────────────────
-  // Combines quantities across recipes and subtracts what's already in the pantry.
-  // Meals suggested by the AI don't have a full recipe (with ingredients) until
-  // you've viewed or saved one — so first, generate+save a recipe for any meal
-  // that doesn't have one yet. Once saved, it's reused (never regenerated).
+  // ── Add meal-plan ingredients to grocery list ────────────────────────────────
+  // Works out the total needed for every meal that's still to be cooked (skipping
+  // made meals and ones marked "covered"), subtracts what's in the pantry AND
+  // already on the list, and adds only the difference. Because it compares against
+  // everything on hand, pressing it again (or after adding another meal) never
+  // double-adds — it just tops up what a new meal needs.
+  // Meals without a saved recipe get one generated, saved, and linked first.
   const addMealPlanToGrocery = useCallback(async () => {
-    const { combineIngredients, convertUnit } = window.APP.utils;
+    const { combineIngredients, shortfall, mergeIntoList, mealRecipes, mealIngredients, generateRecipeFor } = window.APP.utils;
 
-    const matchRecipe  = (list, name) => list.find(r => r.name.toLowerCase() === name.toLowerCase());
-    const mealRecipes  = (m, list) => (m.recipeIds && m.recipeIds.length)
-      ? m.recipeIds.map(id => list.find(r => r.id === id)).filter(Boolean)
-      : (matchRecipe(list, m.name) ? [matchRecipe(list, m.name)] : []);
-    const missing = mealPlan.filter(m => mealRecipes(m, recipes).length === 0);
+    let pending = mealPlan.filter(m => !m.checked && !m.groceriesAdded);
+    if (!pending.length) {
+      showBanner("Nothing to add — every meal is made or marked covered.", "error");
+      return;
+    }
 
+    const missing = pending.filter(m => mealRecipes(m, recipes).length === 0);
     let allRecipes = recipes;
+    const links  = {}; // meal id → generated recipe id
+    const failed = [];
     if (missing.length) {
-      showBanner(`Generating recipes for ${missing.length} meal${missing.length > 1 ? "s" : ""}…`, "success");
+      showBanner(`Generating recipes for ${missing.length} meal${missing.length > 1 ? "s" : ""}…`, "success", 0);
       const generated = [];
       for (const m of missing) {
         try {
-          const data = await callClaude({
-            maxTokens: 2000,
-            messages: [{
-              role: "user",
-              content: `Generate a full recipe for "${m.name}"${m.proteins?.length ? ` using ${m.proteins.join(", ")}` : ""}. Return ONLY valid JSON, no markdown:
-{"name":"","course":"Main","proteins":[],"tags":[],"appliances":[],"servings":4,"prepTime":0,"cookTime":0,"ingredients":[{"id":"i1","name":"","amount":1,"unit":"","section":"Other"}],"steps":[],"notes":"","estimatedCost":0}`,
-            }],
-          });
-          const text   = extractText(data.content);
-          const parsed = parseJSON(text);
-          parsed.ingredients = window.APP.utils.linkIngredients(parsed.ingredients || [], ingredients).map(ing => ({
-            ...ing,
-            section: ing.section && ing.section !== "Other" ? ing.section : categorize(ing.name),
-          }));
-          generated.push({ ...parsed, id: uid(), photo: "", nutrition: {}, sourceLabel: "AI Generated" });
+          const r = await generateRecipeFor(m, ingredients);
+          generated.push(r);
+          links[m.id] = r.id;
           addCost("recipeGen");
         } catch {
-          showBanner(`Couldn't generate a recipe for "${m.name}" — skipped it.`, "error");
+          failed.push(m.name);
         }
       }
       if (generated.length) {
         setRecipes(rs => [...rs, ...generated]);
         allRecipes = [...recipes, ...generated];
+        pending = pending.map(m => links[m.id] ? { ...m, recipeIds: [links[m.id]] } : m);
       }
     }
 
-    const allIngredients = [];
-    mealPlan.forEach(m => {
-      mealRecipes(m, allRecipes).forEach(r => {
-        (r.ingredients || []).forEach(ing => allIngredients.push({ name: ing.name, ingredientId: ing.ingredientId || null, amount: ing.amount, unit: ing.unit, section: ing.section }));
-      });
-    });
-    if (!allIngredients.length) {
+    const included = pending.filter(m => mealRecipes(m, allRecipes).length > 0);
+    const needed   = combineIngredients(included.flatMap(m => mealIngredients(m, allRecipes)));
+    if (!needed.length) {
       showBanner("No recipes with ingredients found in your meal plan.", "error");
       return;
     }
 
-    const combined = combineIngredients(allIngredients);
+    // Link generated recipes to their meals, and note which meals are on the list
+    const includedIds = new Set(included.map(m => m.id));
+    const sentAt = Date.now();
+    setMealPlan(mp => mp.map(m => {
+      if (!includedIds.has(m.id)) return m;
+      return { ...m, ...(links[m.id] ? { recipeIds: [links[m.id]] } : {}), sentToGrocery: sentAt };
+    }));
 
-    const finalItems = combined.map(item => {
-      const key = pantry.find(p => window.APP.utils.sameIngredient(p, item));
-      if (!key || key.amount === 0) return item; // not in pantry, or used up — need to buy full amount
-      if (!item.hasAmount) return null; // non-quantifiable ingredient (e.g. "salt to taste") and pantry has it — skip
-      if (!key.amount || !key.unit) return null; // pantry has it tracked with no quantity — treat as covered
-      const pantryInItemUnit = convertUnit(key.amount, key.unit, item.unit);
-      if (pantryInItemUnit === null) {
-        // units don't convert between pantry and recipe — can't compute shortfall
-        return { ...item, amount: "", unit: "", checkAmount: true };
-      }
-      const remaining = +(item.amount - pantryInItemUnit).toFixed(3);
-      if (remaining <= 0) return null; // pantry fully covers it
-      return { ...item, amount: remaining, checkAmount: !!item.mismatched };
-    }).filter(Boolean);
+    const toBuy = shortfall(needed, [...pantry, ...groceryList]);
+    setGroceryList(l => mergeIntoList(l, shortfall(needed, [...pantry, ...l])));
 
-    setGroceryList(l => {
-      const merged = [...l];
-      finalItems.forEach(ni => {
-        const exists = merged.find(i => window.APP.utils.sameIngredient(i, ni));
-        if (!exists) {
-          merged.push({
-            id: uid(), name: ni.name, ingredientId: ni.ingredientId || null, section: ni.section || categorize(ni.name),
-            amount: ni.hasAmount ? ni.amount : "", unit: ni.hasAmount ? ni.unit : "",
-            checked: false, checkAmount: !!ni.checkAmount,
-            notes: ni.notes && ni.notes.length ? ni.notes : undefined,
-          });
-        }
-      });
-      return merged;
-    });
-
-    showBanner("✓ Grocery list updated — pantry items excluded, duplicates combined", "success");
+    const covered = needed.length - toBuy.length;
+    const msg = toBuy.length
+      ? `✓ Added ${toBuy.length} item${toBuy.length === 1 ? "" : "s"}${covered ? ` — ${covered} already covered by pantry/list` : ""}`
+      : "✓ Everything's already covered by your pantry and list";
+    showBanner(failed.length ? `${msg}. Couldn't generate: ${failed.join(", ")}` : msg, failed.length ? "error" : "success", failed.length ? 5000 : 2200);
     setScreen("grocery");
-  }, [mealPlan, recipes, pantry, ingredients, setGroceryList, setRecipes, addCost, showBanner]);
+  }, [mealPlan, recipes, pantry, groceryList, ingredients, setGroceryList, setRecipes, setMealPlan, addCost, showBanner]);
 
-  // ── Add completed grocery list items to pantry ────────────────────────────────
+  // ── Add purchased grocery items to pantry ─────────────────────────────────────
   const addGroceryToPantry = useCallback(items => {
-    const { sameIngredient, convertUnit } = window.APP.utils;
+    const { sameIngredient, convertUnit, hasQty, fixSection } = window.APP.utils;
     setPantry(p => {
       const updated = [...p];
       items.forEach(item => {
-        const idx = updated.findIndex(pi => sameIngredient(pi, item));
         const amt = parseFloat(item.amount);
-        if (idx === -1) {
-          updated.push({ id: uid(), name: item.name, ingredientId: item.ingredientId || null, section: item.section || categorize(item.name), amount: isNaN(amt) ? "" : amt, unit: item.unit || "" });
-          return;
+        const bought = hasQty(item);
+        const newEntry = () => ({ id: uid(), name: item.name, ingredientId: item.ingredientId || null, section: fixSection(item.section, item.name), amount: bought ? amt : "", unit: bought ? (item.unit || "") : "" });
+
+        const matchIdxs = updated.map((pi, i) => sameIngredient(pi, item) ? i : -1).filter(i => i !== -1);
+        if (!matchIdxs.length) { updated.push(newEntry()); return; }
+        if (!bought) return; // bought with no quantity — the existing entry already says you have it
+
+        // Prefer an entry whose unit converts; otherwise an empty/untracked one we can take over
+        const idx = matchIdxs.find(i => hasQty(updated[i]) && convertUnit(amt, item.unit, updated[i].unit) !== null)
+          ?? matchIdxs.find(i => !hasQty(updated[i]) || parseFloat(updated[i].amount) === 0);
+        if (idx === undefined) { updated.push(newEntry()); return; } // different unit than what's stocked — track separately rather than guess
+
+        const ex = updated[idx];
+        const exAmt = parseFloat(ex.amount);
+        if (!hasQty(ex) || exAmt === 0) {
+          // untracked or used up — restock with what was just bought
+          updated[idx] = { ...ex, amount: amt, unit: item.unit || "" };
+        } else {
+          updated[idx] = { ...ex, amount: +(exAmt + convertUnit(amt, item.unit, ex.unit)).toFixed(3) };
         }
-        const existing = updated[idx];
-        if (isNaN(amt) || !item.unit || !existing.amount || !existing.unit) return; // can't combine numerically — leave existing entry
-        const converted = convertUnit(amt, item.unit, existing.unit);
-        if (converted !== null) updated[idx] = { ...existing, amount: +(existing.amount + converted).toFixed(3) };
-        // incompatible units — leave existing pantry entry untouched rather than guess
       });
       return updated;
     });
   }, [setPantry]);
 
-  // ── Mark meal as made (adds to cook history, optionally decrements pantry) ──
-  const markAsMade = useCallback((meal, date, removeFromPantry) => {
-    const entry = {
-      id:         uid(),
+  // ── Mark meal as made ─────────────────────────────────────────────────────────
+  // `deductions` are the rows (from utils.planDeductions) the person confirmed.
+  // Everything needed to undo it is stored on the meal as `madeInfo`.
+  const markAsMade = useCallback((meal, date, deductions = []) => {
+    const linked  = window.APP.utils.mealRecipes(meal, recipes);
+    const linkedIds = linked.map(r => r.id);
+    const historyId = uid();
+    const now = Date.now();
+
+    setCookHistory(h => [...h, {
+      id:         historyId,
       recipeName: meal.name,
-      recipeId:   meal.recipeId || null,
+      recipeId:   linkedIds[0] || null,
+      recipeIds:  linkedIds,
       proteins:   meal.proteins || [],
       mealType:   meal.mealType || "Dinner",
       date:       date || new Date().toISOString().split("T")[0],
-      madeAt:     Date.now(),
-    };
-    setCookHistory(h => [...h, entry]);
-    setRecipes(rs => rs.map(r => r.name === meal.name ? { ...r, lastMadeAt: Date.now() } : r));
-    // Mark checked in meal plan
-    setMealPlan(mp => mp.map(m => m.id === meal.id ? { ...m, checked: true, checkedAt: Date.now() } : m));
+      madeAt:     now,
+    }]);
 
-    if (removeFromPantry) {
-      const { sameIngredient, convertUnit } = window.APP.utils;
-      const linkedRecipes = (meal.recipeIds && meal.recipeIds.length)
-        ? meal.recipeIds.map(id => recipes.find(r => r.id === id)).filter(Boolean)
-        : [recipes.find(r => r.name === meal.name)].filter(Boolean);
-      if (linkedRecipes.length) {
-        setPantry(p => {
-          let updated = p;
-          linkedRecipes.forEach(recipe => {
-            updated = updated.map(pi => {
-              const used = (recipe.ingredients || []).find(ing => sameIngredient(ing, pi));
-              if (!used || !pi.amount || !pi.unit || !used.unit) return pi;
-              const usedInPantryUnit = convertUnit(used.amount, used.unit, pi.unit);
-              if (usedInPantryUnit === null) return pi;
-              return { ...pi, amount: Math.max(0, +(pi.amount - usedInPantryUnit).toFixed(3)) };
-            });
-          });
-          return updated;
-        });
-      }
+    const prevLastMadeAt = {};
+    linked.forEach(r => { prevLastMadeAt[r.id] = r.lastMadeAt || null; });
+    setRecipes(rs => rs.map(r => linkedIds.includes(r.id) ? { ...r, lastMadeAt: now } : r));
+
+    // Record what was actually removed (can't remove more than was there) so undo is exact
+    const removed = deductions.map(d => {
+      const pi = pantry.find(x => x.id === d.pantryId);
+      const cur = pi ? parseFloat(pi.amount) : NaN;
+      return { ...d, removed: isNaN(cur) ? 0 : Math.min(cur, d.used) };
+    }).filter(d => d.removed > 0);
+
+    if (removed.length) {
+      setPantry(p => p.map(pi => {
+        const d = removed.find(x => x.pantryId === pi.id);
+        const cur = parseFloat(pi.amount);
+        if (!d || isNaN(cur)) return pi;
+        return { ...pi, amount: Math.max(0, +(cur - d.removed).toFixed(3)) };
+      }));
     }
 
-    showBanner(`✓ ${meal.name} marked as made`, "success");
-  }, [setCookHistory, setMealPlan, setPantry, recipes, showBanner]);
+    setMealPlan(mp => mp.map(m => m.id === meal.id ? {
+      ...m, checked: true, checkedAt: now,
+      madeInfo: {
+        historyId, prevLastMadeAt,
+        deductions: removed.map(d => ({ pantryId: d.pantryId, name: d.name, ingredientId: d.ingredientId, section: d.section, unit: d.unit, amount: d.removed })),
+      },
+    } : m));
+
+    const outCount = removed.filter(d => d.after === 0).length;
+    showBanner(`✓ ${meal.name} marked as made${removed.length ? ` — ${removed.length} pantry item${removed.length === 1 ? "" : "s"} updated` : ""}${outCount ? `, ${outCount} used up` : ""}`, "success", 3000);
+  }, [setCookHistory, setMealPlan, setPantry, setRecipes, recipes, pantry, showBanner]);
+
+  // ── Undo "mark as made" ───────────────────────────────────────────────────────
+  // Puts pantry amounts back (re-adding an entry if it was deleted since), removes
+  // the cook history entry, and restores each recipe's previous lastMadeAt.
+  const undoMarkAsMade = useCallback(meal => {
+    const info = meal.madeInfo;
+    if (!info) return;
+    const deds = info.deductions || [];
+    if (deds.length) {
+      setPantry(p => {
+        const updated = p.map(pi => {
+          const d = deds.find(x => x.pantryId === pi.id);
+          const cur = parseFloat(pi.amount);
+          return d && !isNaN(cur) ? { ...pi, amount: +(cur + d.amount).toFixed(3) } : pi;
+        });
+        deds.filter(d => !p.some(pi => pi.id === d.pantryId)).forEach(d => {
+          updated.push({ id: d.pantryId, name: d.name, ingredientId: d.ingredientId || null, section: d.section, amount: d.amount, unit: d.unit || "" });
+        });
+        return updated;
+      });
+    }
+    setCookHistory(h => h.filter(e => e.id !== info.historyId));
+    setRecipes(rs => rs.map(r => r.id in (info.prevLastMadeAt || {}) ? { ...r, lastMadeAt: info.prevLastMadeAt[r.id] || undefined } : r));
+    setMealPlan(mp => mp.map(m => {
+      if (m.id !== meal.id) return m;
+      const { madeInfo, checkedAt, ...rest } = m;
+      return { ...rest, checked: false };
+    }));
+    showBanner(`↺ ${meal.name} un-marked${deds.length ? " — pantry restored" : ""}`, "success");
+  }, [setPantry, setCookHistory, setRecipes, setMealPlan, showBanner]);
 
   // ── Record grocery purchase ───────────────────────────────────────────────────
   const recordPurchase = useCallback((amount, note) => {
@@ -391,7 +423,9 @@ function App() {
       onAddToGrocery: addToGrocery,
       onAddMealPlanToGrocery: addMealPlanToGrocery,
       onMarkAsMade:   markAsMade,
+      onUndoMarkAsMade: undoMarkAsMade,
       onAddRecipeToMeal: addRecipeToMeal,
+      pantry,
       requestPin,
       settings,
       saveSettings,
@@ -428,6 +462,11 @@ function App() {
       showBanner,
       pantry,
       setPantry,
+      groceryList,
+      onAddToGrocery:  addItemsToGrocery,
+      onAddToPantry:   addGroceryToPantry,
+      staples,
+      setStaples,
       addCost,
       knownIngredientNames,
       ingredients,

@@ -38,12 +38,15 @@ window.APP.useCostLog = function() {
 // banner: { message, type } | null
 // showBanner("Milk added to grocery list", "success")  — auto-hides after 2s
 // showBanner("Something went wrong", "error")
+// showBanner("Working…", "success", 0)        — stays up until the next banner replaces it
 window.APP.useBanner = function() {
   const [banner, setBanner] = useState(null);
+  const timer = React.useRef(null);
 
-  const showBanner = useCallback((message, type = "success") => {
+  const showBanner = useCallback((message, type = "success", duration = 2200) => {
+    clearTimeout(timer.current); // a new banner gets its full time, not the previous one's leftover
     setBanner({ message, type, id: Date.now() });
-    setTimeout(() => setBanner(null), 2200);
+    if (duration > 0) timer.current = setTimeout(() => setBanner(null), duration);
   }, []);
 
   return { banner, showBanner };

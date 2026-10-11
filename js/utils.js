@@ -68,17 +68,62 @@ window.APP.utils = {
     return n.trim();
   },
 
+  // ── Unit normalization ─────────────────────────────────────────────────────
+  // Maps the many ways a unit gets written ("Tablespoons", "lbs", "fl. oz") onto
+  // the app's standard UNITS. Unknown units come back lowercased and trimmed so
+  // exact matches still line up. "" stays "".
+  // canonUnit("Tablespoons") → "tbsp"
+  canonUnit(unit = "") {
+    const UNITS = window.APP.UNITS || [];
+    const ALIASES = {
+      teaspoon: "tsp", teaspoons: "tsp", tsps: "tsp",
+      tablespoon: "tbsp", tablespoons: "tbsp", tbsps: "tbsp", tbs: "tbsp", tbl: "tbsp", tbls: "tbsp",
+      "fluid ounce": "fl oz", "fluid ounces": "fl oz", floz: "fl oz", "fl ounce": "fl oz", "fl ounces": "fl oz",
+      cups: "cup", c: "cup",
+      pints: "pint", pt: "pint", pts: "pint",
+      quarts: "quart", qt: "quart", qts: "quart",
+      gallons: "gallon", gal: "gallon", gals: "gallon",
+      milliliter: "ml", milliliters: "ml", millilitre: "ml", millilitres: "ml", mls: "ml",
+      liter: "l", liters: "l", litre: "l", litres: "l",
+      ounce: "oz", ounces: "oz", ozs: "oz",
+      pound: "lb", pounds: "lb", lbs: "lb",
+      gram: "g", grams: "g", gr: "g",
+      kilogram: "kg", kilograms: "kg", kgs: "kg", kilo: "kg", kilos: "kg",
+      each: "count", ea: "count", whole: "count", piece: "count", pieces: "count", pc: "count", pcs: "count",
+      large: "count", medium: "count", small: "count", item: "count", items: "count",
+      cloves: "clove", pinches: "pinch",
+    };
+    const u = String(unit || "").toLowerCase().replace(/\./g, "").replace(/\s+/g, " ").trim();
+    if (!u || UNITS.includes(u)) return u;
+    return ALIASES[u] || u;
+  },
+
   // ── Unit conversion ────────────────────────────────────────────────────────
   // Converts an amount between two units of the same type (volume or weight).
-  // Returns null if units are missing, unknown, "count", or different types.
+  // A blank unit counts as "count" (e.g. "2 eggs"), so blank and "count" match.
+  // Returns null if units are unknown or different types.
   convertUnit(amount, fromUnit, toUnit) {
+    const { canonUnit } = window.APP.utils;
     const UNIT_INFO = window.APP.UNIT_INFO || {};
-    if (!fromUnit || !toUnit) return null;
-    if (fromUnit === toUnit) return amount;
-    const from = UNIT_INFO[fromUnit], to = UNIT_INFO[toUnit];
+    const fromU = canonUnit(fromUnit) || "count", toU = canonUnit(toUnit) || "count";
+    if (fromU === toU) return +amount;
+    const from = UNIT_INFO[fromU], to = UNIT_INFO[toU];
     if (!from || !to) return null;
     if (from.type !== to.type || from.type === "count") return null;
     return +((amount * from.toBase) / to.toBase).toFixed(3);
+  },
+
+  // True when an item has a usable numeric amount (0 counts — it means "used up").
+  hasQty(item) {
+    return item && item.amount !== "" && item.amount != null && !isNaN(parseFloat(item.amount));
+  },
+
+  // Returns a valid grocery section — the given one if it's a known section
+  // (other than "Other"), otherwise auto-categorized from the name.
+  fixSection(section, name) {
+    const SECTIONS = window.APP.SECTIONS || [];
+    if (section && section !== "Other" && SECTIONS.includes(section)) return section;
+    return window.APP.categorize ? window.APP.categorize(name || "") : "Other";
   },
 
   // ── Combine ingredient lists ──────────────────────────────────────────────────
@@ -105,9 +150,10 @@ window.APP.utils = {
         g.ingredientId = item.ingredientId; // upgrade group to linked as soon as we see a linked match
       }
       const amt = parseFloat(item.amount);
-      if (!item.unit || isNaN(amt)) {
+      if (isNaN(amt)) {
         // non-quantifiable (e.g. "salt to taste") — keep as a note, don't sum
-        g.notes.push(item.amount ? `${item.amount}${item.unit ? " " + item.unit : ""}` : (item.unit || ""));
+        const note = item.amount ? `${item.amount}${item.unit ? " " + item.unit : ""}` : (item.unit || "");
+        if (note) g.notes.push(note);
         return;
       }
       if (!g.hasAmount) {
@@ -158,6 +204,178 @@ window.APP.utils = {
       const std = id ? standardList.find(s => s.id === id) : null;
       return { ...ing, ingredientId: id || null, name: std ? std.name : ing.name };
     });
+  },
+
+  // Cleans up an AI-produced ingredient list so it fits the rest of the app:
+  // numeric amounts, standard units (an unrecognized unit like "can" moves into
+  // the description), linked to the standard list, and a valid grocery section.
+  cleanIngredients(raw = [], standardList = []) {
+    const { uid, canonUnit, linkIngredients, fixSection } = window.APP.utils;
+    const UNITS = window.APP.UNITS || [];
+    const ings = (raw || []).filter(i => i && i.name).map(i => {
+      const amt   = parseFloat(i.amount);
+      const unit  = canonUnit(i.unit);
+      const known = !unit || UNITS.includes(unit);
+      const printed = known ? "" : `${i.amount ?? ""} ${i.unit}`.trim();
+      return {
+        ...i,
+        id: uid(),
+        name: String(i.name).trim(),
+        description: [printed, i.description].filter(Boolean).join(", "),
+        amount: isNaN(amt) ? "" : amt,
+        unit: known ? unit : "",
+      };
+    });
+    return linkIngredients(ings, standardList).map(ing => ({ ...ing, section: fixSection(ing.section, ing.name) }));
+  },
+
+  // Prompt rules shared by every AI recipe request so units and sections come back usable.
+  recipeFormatRules() {
+    const { UNITS = [], SECTIONS = [] } = window.APP;
+    return `Rules: "amount" is a number only (convert fractions to decimals, 1 1/2 = 1.5). "unit" is exactly one of [${UNITS.join(", ")}], or "" if none fits — for things counted whole (eggs, onions) use "count". "section" is one of [${SECTIONS.join(", ")}].`;
+  },
+
+  // Generates (but does not save) a full recipe for a meal plan entry. The
+  // recipe takes the meal's name so the plan and recipe library stay in step.
+  async generateRecipeFor(meal, standardList = []) {
+    const { callClaude, extractText, parseJSON, cleanIngredients, recipeFormatRules, uid } = window.APP.utils;
+    const data = await callClaude({
+      maxTokens: 2000,
+      messages: [{
+        role: "user",
+        content: `Generate a full recipe for "${meal.name}"${meal.proteins?.length ? ` using ${meal.proteins.join(", ")}` : ""}. Return ONLY valid JSON, no markdown:
+{"name":"","course":"Main","proteins":[],"tags":[],"appliances":[],"servings":4,"prepTime":0,"cookTime":0,"ingredients":[{"name":"","amount":1,"unit":"","section":"Other"}],"steps":[],"notes":"","estimatedCost":0}
+${recipeFormatRules()}`,
+      }],
+    });
+    const parsed = parseJSON(extractText(data.content));
+    return {
+      ...parsed,
+      id: uid(),
+      name: meal.name,
+      servings: +parsed.servings || 4,
+      ingredients: cleanIngredients(parsed.ingredients, standardList),
+      photo: "", nutrition: {}, sourceLabel: "AI Generated", createdAt: Date.now(),
+    };
+  },
+
+  // ── Meal plan ↔ recipes ───────────────────────────────────────────────────────
+  // The saved recipes behind a meal plan entry: its linked recipeIds, or (for
+  // older/unlinked entries) a recipe with the same name.
+  mealRecipes(meal, recipes = []) {
+    if (meal.recipeIds && meal.recipeIds.length) {
+      return meal.recipeIds.map(id => recipes.find(r => r.id === id)).filter(Boolean);
+    }
+    const name  = (meal.name || "").toLowerCase();
+    const match = recipes.find(r => (r.name || "").toLowerCase() === name);
+    return match ? [match] : [];
+  },
+
+  // A recipe's ingredients scaled to `servings` (unscaled if servings is blank).
+  recipeIngredients(recipe, servings) {
+    const { scaleAmt, hasQty } = window.APP.utils;
+    return (recipe.ingredients || []).map(ing => ({
+      name: ing.name, ingredientId: ing.ingredientId || null, unit: ing.unit || "", section: ing.section,
+      amount: servings && recipe.servings && hasQty(ing) ? scaleAmt(parseFloat(ing.amount), recipe.servings, servings) : ing.amount,
+    }));
+  },
+
+  // Every ingredient a meal plan entry needs, scaled to the meal's servings.
+  mealIngredients(meal, recipes = []) {
+    const { mealRecipes, recipeIngredients } = window.APP.utils;
+    return mealRecipes(meal, recipes).flatMap(r => recipeIngredients(r, meal.servings));
+  },
+
+  // ── Grocery math ──────────────────────────────────────────────────────────────
+  // Given what's needed (groups from combineIngredients) and what's on hand
+  // (pantry, and optionally the grocery list), returns what still has to be bought.
+  // - On hand with no quantity tracked (e.g. salt) → treated as covered.
+  // - On hand in a unit that won't convert → still listed, flagged "check amount".
+  shortfall(needed = [], onHand = []) {
+    const { sameIngredient, convertUnit, hasQty } = window.APP.utils;
+    return needed.map(item => {
+      const matches = onHand.filter(o => sameIngredient(o, item));
+      if (!matches.length) return item;
+      if (matches.some(o => !hasQty(o))) return null; // tracked with no quantity — covered
+      if (!item.hasAmount) return matches.some(o => parseFloat(o.amount) > 0) ? null : item;
+
+      let have = 0;
+      const unconverted = [];
+      matches.forEach(o => {
+        const c = convertUnit(parseFloat(o.amount), o.unit, item.unit);
+        if (c === null) unconverted.push(`have ${o.amount}${o.unit ? " " + o.unit : ""}`);
+        else have += c;
+      });
+      const remaining = +(item.amount - have).toFixed(3);
+      if (remaining <= 0) return null;
+      if (unconverted.length) return { ...item, amount: remaining, checkAmount: true, notes: [...(item.notes || []), ...unconverted] };
+      return { ...item, amount: remaining, checkAmount: !!item.mismatched };
+    }).filter(Boolean);
+  },
+
+  // Adds items to a grocery list. When the same ingredient is already on the
+  // list (and not checked off yet), quantities are summed instead of skipped or
+  // duplicated. Returns a new array.
+  mergeIntoList(list = [], items = []) {
+    const { uid, sameIngredient, convertUnit, hasQty, fixSection } = window.APP.utils;
+    const merged = list.map(i => ({ ...i }));
+    items.forEach(ni => {
+      const qty   = hasQty(ni) ? +parseFloat(ni.amount).toFixed(3) : null;
+      const notes = ni.notes && ni.notes.length ? ni.notes : [];
+      const ex    = merged.find(i => !i.checked && sameIngredient(i, ni));
+      if (!ex) {
+        merged.push({
+          id: uid(), name: ni.name, ingredientId: ni.ingredientId || null, section: fixSection(ni.section, ni.name),
+          amount: qty ?? "", unit: qty !== null ? (ni.unit || "") : "",
+          checked: false, checkAmount: !!ni.checkAmount,
+          ...(notes.length ? { notes } : {}),
+          ...(ni.staple ? { staple: true } : {}),
+          ...(ni.misc ? { misc: true } : {}),
+        });
+        return;
+      }
+      const allNotes = [...(ex.notes || []), ...notes];
+      if (!ex.ingredientId && ni.ingredientId) ex.ingredientId = ni.ingredientId;
+      if (qty !== null) {
+        if (!hasQty(ex)) { ex.amount = qty; ex.unit = ni.unit || ""; }
+        else {
+          const c = convertUnit(qty, ni.unit, ex.unit);
+          if (c !== null) ex.amount = +(parseFloat(ex.amount) + c).toFixed(3);
+          else { allNotes.push(`+ ${qty}${ni.unit ? " " + ni.unit : ""}`); ex.checkAmount = true; }
+        }
+      }
+      if (ni.checkAmount) ex.checkAmount = true;
+      if (allNotes.length) ex.notes = [...new Set(allNotes)];
+    });
+    return merged;
+  },
+
+  // ── Pantry deductions ─────────────────────────────────────────────────────────
+  // Works out what cooking a meal takes out of the pantry, without changing
+  // anything. One row per pantry item: { pantryId, name, unit, before, used, after }.
+  // Ingredients not in the pantry, or tracked with no quantity (e.g. salt), are skipped.
+  planDeductions(meal, recipes = [], pantry = []) {
+    const { mealIngredients, sameIngredient, convertUnit, hasQty } = window.APP.utils;
+    const rows = {};
+    mealIngredients(meal, recipes).forEach(ing => {
+      const amt = parseFloat(ing.amount);
+      if (isNaN(amt) || amt <= 0) return;
+      const matches = pantry.filter(pi => sameIngredient(pi, ing));
+      if (!matches.length || matches.some(pi => !hasQty(pi))) return;
+      // Prefer an entry that still has stock and a compatible unit
+      const usable = matches
+        .map(pi => ({ pi, used: convertUnit(amt, ing.unit, pi.unit) }))
+        .filter(x => x.used !== null);
+      if (!usable.length) return;
+      const left = x => parseFloat(x.pi.amount) - (rows[x.pi.id]?.used || 0);
+      const pick = usable.find(x => left(x) > 0) || usable[0];
+      const row  = rows[pick.pi.id] || (rows[pick.pi.id] = {
+        pantryId: pick.pi.id, name: pick.pi.name, ingredientId: pick.pi.ingredientId || null,
+        section: pick.pi.section, unit: pick.pi.unit || "", before: parseFloat(pick.pi.amount), used: 0,
+      });
+      row.used = +(row.used + pick.used).toFixed(3);
+    });
+    return Object.values(rows).map(r => ({ ...r, after: Math.max(0, +(r.before - r.used).toFixed(3)) }));
   },
 
   // ── Rolling 365-day price history ─────────────────────────────────────────────

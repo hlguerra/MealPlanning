@@ -50,7 +50,7 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
   const recentlyMade = new Set(
     (cookHistory || [])
       .filter(e => Date.now() - e.madeAt < 30 * 24 * 60 * 60 * 1000)
-      .map(e => e.recipeName)
+      .flatMap(e => (e.recipeName || "").split(" + "))
   );
 
   // Saved recipes not made recently — prioritize these in generation

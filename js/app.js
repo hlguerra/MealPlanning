@@ -244,7 +244,7 @@ function App() {
 
     const finalItems = combined.map(item => {
       const key = pantry.find(p => window.APP.utils.sameIngredient(p, item));
-      if (!key) return item; // not in pantry — need to buy full amount
+      if (!key || key.amount === 0) return item; // not in pantry, or used up — need to buy full amount
       if (!item.hasAmount) return null; // non-quantifiable ingredient (e.g. "salt to taste") and pantry has it — skip
       if (!key.amount || !key.unit) return null; // pantry has it tracked with no quantity — treat as covered
       const pantryInItemUnit = convertUnit(key.amount, key.unit, item.unit);
@@ -422,6 +422,10 @@ function App() {
     }),
 
     pantry: h(PantryScreen, {
+      recipes,
+      setRecipes,
+      onAddToMealPlan: addToMealPlan,
+      showBanner,
       pantry,
       setPantry,
       addCost,

@@ -1,21 +1,18 @@
 // ── js/firebase.js ────────────────────────────────────────────────────────────
 // Firebase helpers are initialized in index.html as an ES module
-// because Firestore functions (doc, getDoc, setDoc) must stay in module scope.
+// because the Firebase SDK functions must stay in module scope.
 //
 // All helpers are attached to window.APP.firebase in index.html:
 //
-//   readGrocery(id)          → Promise<items[]>
-//   writeGrocery(id, items)  → Promise<void>
-//   readRecipes(id)          → Promise<recipes[]>
-//   writeRecipes(id, recipes)→ Promise<void>
-//   readCostLog(id)          → Promise<entries[]>
-//   writeCostLog(id,entries) → Promise<void>
-//   readSpending(id)         → Promise<entries[]>
-//   writeSpending(id,entries)→ Promise<void>
-//   readCookHistory(id)      → Promise<entries[]>
-//   writeCookHistory(id,e)   → Promise<void>
-//   householdExists(id)      → Promise<boolean>
-//   createHousehold(id,name) → Promise<void>
+//   authReady                          → Promise<User>  (anonymous sign-in)
+//   getIdToken()                       → Promise<string>  (for the AI proxy)
+//   subscribe(id, path, field, onData, onError) → unsubscribe
+//   mergeWrite(id, path, field, merge) → Promise<value written>  (transaction)
+//   ensureMember(id, pin)              → Promise<boolean>  (PIN checked by rules)
+//   createHousehold(id, name, pin)     → Promise<void>
+//   setHouseholdPin(id, pin)           → Promise<void>
+//   leaveHousehold(id)                 → Promise<void>
 //
-// To add a new collection, add read/write helpers in index.html
-// following the same pattern, then add sync callbacks in sync.js.
+// To sync a new collection, add it to SYNCED in sync.js and pass its setter to
+// startSync / its value to schedulePush in app.js. Access is controlled by
+// firestore.rules (deploy with `firebase deploy --only firestore:rules`).

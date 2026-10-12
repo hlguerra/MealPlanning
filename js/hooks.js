@@ -18,9 +18,8 @@ window.APP.usePersist = function(key, init) {
 // ── useCostLog ────────────────────────────────────────────────────────────────
 // Tracks estimated API usage over a rolling 30-day window.
 // Call addCost("mealPlan") after each AI feature call.
-window.APP.useCostLog = function() {
-  const [log, setLog] = window.APP.usePersist("hmp_costlog", []);
-
+// Takes the log state from App so there's one copy, and it's the one that syncs.
+window.APP.useCostLog = function(log, setLog) {
   const addCost = useCallback((type) => {
     const cost = COST_PER_CALL[type] || 0.005;
     setLog(l => [...rolling30(l), { ts: Date.now(), type, cost }]);

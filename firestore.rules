@@ -1,0 +1,42 @@
+rules_version = '2';
+
+// Every device signs in anonymously. A device can only touch a household's data
+// once it has a members/{uid} doc there, and it can only create that doc by
+// presenting the household's PIN (checked here, server-side).
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /households/{hid} {
+      function household() { return get(/databases/$(database)/documents/households/$(hid)); }
+      function isMember() {
+        return request.auth != null
+          && exists(/databases/$(database)/documents/households/$(hid)/members/$(request.auth.uid));
+      }
+
+      // No `list` — household IDs can't be enumerated.
+      allow get:    if isMember();
+      allow create: if request.auth != null
+                    && request.resource.data.ownerUid == request.auth.uid
+                    && request.resource.data.pin is string
+                    && request.resource.data.pin.size() >= 4;
+      allow update: if isMember()
+                    && request.resource.data.pin is string
+                    && request.resource.data.pin.size() >= 4;
+
+      match /members/{uid} {
+        allow get:    if request.auth != null && request.auth.uid == uid;
+        allow delete: if request.auth != null && request.auth.uid == uid;
+        // Join: PIN must match. Households created before PINs were stored
+        // server-side have no `pin` yet — the first device to sign in claims it
+        // and then writes its PIN to the household doc (see sync.js).
+        allow create: if request.auth != null && request.auth.uid == uid
+                      && (!('pin' in household().data)
+                          || request.resource.data.pin == household().data.pin);
+      }
+
+      match /{collection}/{docId} {
+        allow read, write: if collection != "members" && isMember();
+      }
+    }
+  }
+}

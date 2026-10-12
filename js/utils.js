@@ -607,9 +607,18 @@ Recipes: ${JSON.stringify(summary)}`,
     };
     if (tools) body.tools = tools;
 
-const res = await fetch("https://us-central1-meal-planner-5df26.cloudfunctions.net/anthropicProxy", {
+    // The proxy only serves signed-in members of a household
+    const householdId = window.APP.currentHouseholdId;
+    if (!householdId) throw new Error("AI features need a household — set one up under Settings → Sync & Household.");
+    const token = await window.APP.firebase.getIdToken();
+
+    const res = await fetch(window.APP.API_URL, {
       method:  "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type":   "application/json",
+        "Authorization":  `Bearer ${token}`,
+        "X-Household-Id": householdId,
+      },
       body:    JSON.stringify(body),
     });
 

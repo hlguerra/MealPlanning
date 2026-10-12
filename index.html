@@ -26,6 +26,7 @@
   {
     "imports": {
       "firebase/app":       "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js",
+      "firebase/auth":      "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js",
       "firebase/firestore": "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js"
     }
   }
@@ -34,7 +35,8 @@
   <!-- Firebase init -->
   <script type="module">
     import { initializeApp } from "firebase/app";
-    import { getFirestore, doc, getDoc, setDoc } from "firebase/firestore";
+    import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
+    import { initializeFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, runTransaction } from "firebase/firestore";
 
     const firebaseConfig = {
       apiKey:            "AIzaSyAGsLTqTtqJ_2ofBvzIHZ18rT74Ifj5MTw",
@@ -45,43 +47,79 @@
       appId:             "1:591027849531:web:16799ab95c09098ebf8f1e",
     };
 
-    const fb = initializeApp(firebaseConfig);
-    const db = getFirestore(fb);
+    const fb   = initializeApp(firebaseConfig);
+    const db   = initializeFirestore(fb, { ignoreUndefinedProperties: true });
+    const auth = getAuth(fb);
 
-    const groceryRef = id => doc(db, "households", id, "grocery",  "items");
-    const recipesRef = id => doc(db, "households", id, "recipes",  "backup");
-    const costlogRef = id => doc(db, "households", id, "costlog",  "entries");
-    const hhRef      = id => doc(db, "households", id);
+    // Each device signs in anonymously (persists across reloads). Firestore rules
+    // and the AI proxy both key off this uid.
+    const authReady = new Promise((resolve, reject) => {
+      const unsub = onAuthStateChanged(auth, user => {
+        if (user) { unsub(); resolve(user); }
+        else signInAnonymously(auth).catch(err => { unsub(); reject(err); });
+      });
+    });
+
+    const hhRef     = id        => doc(db, "households", id);
+    const memberRef = (id, uid) => doc(db, "households", id, "members", uid);
+    const dataRef   = (id, path) => doc(db, "households", id, ...path);
+    const MISSING   = Symbol("missing");
 
     window.APP = window.APP || {};
     window.APP.firebase = {
-      readGrocery:      async id => { const s = await getDoc(groceryRef(id)); return s.exists() ? (s.data().items   || []) : []; },
-      readRecipes:      async id => { const s = await getDoc(recipesRef(id)); return s.exists() ? (s.data().recipes || []) : []; },
-      readCostLog:      async id => { const s = await getDoc(costlogRef(id)); return s.exists() ? (s.data().entries || []) : []; },
-      writeGrocery:     async (id, items)   => setDoc(groceryRef(id), { items,   updatedAt: Date.now() }),
-      writeRecipes:     async (id, recipes) => setDoc(recipesRef(id), { recipes, updatedAt: Date.now() }),
-      writeCostLog:     async (id, entries) => setDoc(costlogRef(id), { entries, updatedAt: Date.now() }),
-      householdExists:  async id => { const s = await getDoc(hhRef(id)); return s.exists(); },
-      createHousehold:  async (id, name) => setDoc(hhRef(id), { name, createdAt: Date.now() }),
+      MISSING,
+      authReady,
+      getIdToken: async () => (await authReady).getIdToken(),
 
-      readSpending:     async id => { const s = await getDoc(doc(db,"households",id,"spending","history")); return s.exists()?(s.data().entries||[]):[];},
-      writeSpending:    async (id,entries) => setDoc(doc(db,"households",id,"spending","history"),{entries,updatedAt:Date.now()}),
-      readCookHistory:  async id => { const s = await getDoc(doc(db,"households",id,"cookhistory","log")); return s.exists()?(s.data().entries||[]):[];},
-      writeCookHistory: async (id,entries) => setDoc(doc(db,"households",id,"cookhistory","log"),{entries,updatedAt:Date.now()}),
-      readMealPlan:     async id => { const s = await getDoc(doc(db,"households",id,"mealplan","current")); return s.exists()?(s.data().items||[]):[];},
-      writeMealPlan:    async (id,items) => setDoc(doc(db,"households",id,"mealplan","current"),{items,updatedAt:Date.now()}),
-      readPantry:       async id => { const s = await getDoc(doc(db,"households",id,"pantry","items")); return s.exists()?(s.data().items||[]):[];},
-      writePantry:      async (id,items) => setDoc(doc(db,"households",id,"pantry","items"),{items,updatedAt:Date.now()}),
-      readStaples:      async id => { const s = await getDoc(doc(db,"households",id,"staples","items")); return s.exists()?(s.data().items||[]):[];},
-      writeStaples:     async (id,items) => setDoc(doc(db,"households",id,"staples","items"),{items,updatedAt:Date.now()}),
-      readAppliances:   async id => { const s = await getDoc(doc(db,"households",id,"appliances","list")); return s.exists()?(s.data().items||null):null;},
-      writeAppliances:  async (id,items) => setDoc(doc(db,"households",id,"appliances","list"),{items,updatedAt:Date.now()}),
-      readSettings:     async id => { const s = await getDoc(doc(db,"households",id,"settings","prefs")); return s.exists()?(s.data().settings||null):null;},
-      writeSettings:    async (id,settings) => setDoc(doc(db,"households",id,"settings","prefs"),{settings,updatedAt:Date.now()}),
-      readIngredients:  async id => { const s = await getDoc(doc(db,"households",id,"ingredients","list")); return s.exists()?(s.data().items||[]):[];},
-      writeIngredients: async (id,items) => setDoc(doc(db,"households",id,"ingredients","list"),{items,updatedAt:Date.now()}),
-      readPriceHistory:  async id => { const s = await getDoc(doc(db,"households",id,"pricehistory","log")); return s.exists()?(s.data().entries||[]):[];},
-      writePriceHistory: async (id,entries) => setDoc(doc(db,"households",id,"pricehistory","log"),{entries,updatedAt:Date.now()}),
+      // Live listener on one data doc. onData(value | MISSING).
+      subscribe: (id, path, field, onData, onError) =>
+        onSnapshot(dataRef(id, path), snap => {
+          if (snap.metadata.hasPendingWrites) return; // our own local echo
+          onData(snap.exists() && snap.data()[field] != null ? snap.data()[field] : MISSING);
+        }, onError),
+
+      // Read-merge-write in a transaction so a concurrent write from another
+      // device is merged in rather than overwritten. merge(serverValue | MISSING) → value to write.
+      mergeWrite: (id, path, field, merge) =>
+        runTransaction(db, async tx => {
+          const ref  = dataRef(id, path);
+          const snap = await tx.get(ref);
+          const value = merge(snap.exists() && snap.data()[field] != null ? snap.data()[field] : MISSING);
+          tx.set(ref, { [field]: value, updatedAt: Date.now() });
+          return value;
+        }),
+
+      // Makes this device a member of the household. The PIN is checked by the
+      // Firestore rules. Returns false if the ID/PIN is wrong.
+      ensureMember: async (id, pin) => {
+        const { uid } = await authReady;
+        try {
+          if ((await getDoc(memberRef(id, uid))).exists()) return true;
+        } catch (e) { if (e.code !== "permission-denied") throw e; }
+        try {
+          await setDoc(memberRef(id, uid), { pin: String(pin || ""), joinedAt: Date.now() });
+        } catch (e) {
+          if (e.code === "permission-denied") return false;
+          throw e;
+        }
+        // Households created before PINs were stored server-side: claim it with this PIN
+        const hh = await getDoc(hhRef(id));
+        if (hh.exists() && !hh.data().pin) await updateDoc(hhRef(id), { pin: String(pin) });
+        return true;
+      },
+
+      createHousehold: async (id, name, pin) => {
+        const { uid } = await authReady;
+        await setDoc(hhRef(id), { name, pin: String(pin), ownerUid: uid, createdAt: Date.now() });
+        await setDoc(memberRef(id, uid), { pin: String(pin), joinedAt: Date.now() });
+      },
+
+      setHouseholdPin: (id, pin) => updateDoc(hhRef(id), { pin: String(pin) }),
+
+      leaveHousehold: async id => {
+        const { uid } = await authReady;
+        await deleteDoc(memberRef(id, uid));
+      },
     };
     window.APP.firebaseReady = true;
   </script>

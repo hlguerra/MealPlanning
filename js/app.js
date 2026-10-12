@@ -35,7 +35,7 @@ function App() {
   const [priceListResults,   setPriceListResults]   = useState(null);
 
   // ── Cross-cutting hooks ──────────────────────────────────────────────────────
-  const { addCost, total30 }     = useCostLog();
+  const { addCost, total30 }     = useCostLog(costLog, setCostLog);
   const { banner, showBanner }   = useBanner();
   const { pinModal, requestPin } = usePinGuard(settings.pin);
 
@@ -50,22 +50,24 @@ function App() {
     const householdId = settings.householdId;
     if (!householdId || !window.APP.startSync) return;
 
-    const syncFn = window.APP.startSync(householdId, {
-      setGroceryList,
-      setRecipes,
-      setCostLog,
-      setSpending,
-      setCookHistory,
-      setMealPlan,
-      setPantry,
-      setStaples,
-      setMyAppliances,
-      setSettings,
-      setIngredients,
-      setPriceHistory,
+    const sync = window.APP.startSync(householdId, settings.pin, {
+      groceryList:  setGroceryList,
+      recipes:      setRecipes,
+      costLog:      setCostLog,
+      spending:     setSpending,
+      cookHistory:  setCookHistory,
+      mealPlan:     setMealPlan,
+      pantry:       setPantry,
+      staples:      setStaples,
+      myAppliances: setMyAppliances,
+      settings:     setSettings,
+      ingredients:  setIngredients,
+      priceHistory: setPriceHistory,
     });
 
-    if (syncFn) setSyncNow(() => syncFn);
+    if (!sync) return;
+    setSyncNow(() => sync.syncNow);
+    return () => { sync.stop(); setSyncNow(null); };
   }, [settings.householdId]); // eslint-disable-line
 
   // ── Push to Firebase after local changes ──────────────────────────────────────

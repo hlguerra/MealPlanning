@@ -65,7 +65,12 @@ window.APP.SettingsScreen = function({ settings, saveSettings, myAppliances, set
   const handleChangePin = () => {
     if (!newPin1 || newPin1 !== newPin2) { setPinMsg("PINs don't match."); return; }
     if (newPin1.length < 4)              { setPinMsg("PIN must be at least 4 digits."); return; }
-    requestPin(() => {
+    requestPin(async () => {
+      // The household's PIN lives server-side too (it's what joining checks against)
+      if (form.householdId) {
+        try { await window.APP.firebase.setHouseholdPin(form.householdId, newPin1); }
+        catch { setPinMsg("Could not update the household PIN. Check your connection."); return; }
+      }
       const updated = { ...form, pin: newPin1 };
       setForm(updated);
       saveSettings(updated);
@@ -80,7 +85,7 @@ window.APP.SettingsScreen = function({ settings, saveSettings, myAppliances, set
     setHhLoading(true); setHhMsg("");
     try {
       const newId = window.APP.generateHouseholdId();
-      await window.APP.firebase.createHousehold(newId, form.householdName || "My Household");
+      await window.APP.firebase.createHousehold(newId, form.householdName || "My Household", form.pin);
       const updated = { ...form, householdId: newId };
       setForm(updated);
       saveSettings(updated);
@@ -97,13 +102,13 @@ window.APP.SettingsScreen = function({ settings, saveSettings, myAppliances, set
     const p  = joinPin.trim();
     if (!id)  { setJoinMsg("Enter a household ID."); return; }
     if (!p)   { setJoinMsg("Enter the household PIN."); return; }
-    if (p !== form.pin && p !== settings.pin) { setJoinMsg("Incorrect PIN."); return; }
 
     setHhLoading(true); setJoinMsg("");
     try {
-      const exists = await window.APP.firebase.householdExists(id);
-      if (!exists) { setJoinMsg("Household not found. Check the ID."); setHhLoading(false); return; }
-      const updated = { ...form, householdId: id };
+      // The PIN is checked server-side by the Firestore rules
+      const ok = await window.APP.firebase.ensureMember(id, p);
+      if (!ok) { setJoinMsg("Wrong household ID or PIN."); setHhLoading(false); return; }
+      const updated = { ...form, householdId: id, pin: p };
       setForm(updated);
       saveSettings(updated);
       setJoinMsg(`✓ Joined household ${id}`);
@@ -117,6 +122,7 @@ window.APP.SettingsScreen = function({ settings, saveSettings, myAppliances, set
   // ── Leave household ───────────────────────────────────────────────────────
   const leaveHousehold = () => {
     requestPin(() => {
+      window.APP.firebase.leaveHousehold(form.householdId).catch(() => {}); // best effort
       const updated = { ...form, householdId: "" };
       setForm(updated);
       saveSettings(updated);
@@ -156,7 +162,7 @@ window.APP.SettingsScreen = function({ settings, saveSettings, myAppliances, set
               h("div", { style: { fontSize: 20 } }, "☁️"),
             ),
             h("div", { className: "muted text-xs", style: { marginBottom: 12 } },
-              "Grocery list, recipes, and API cost log sync automatically every 2 minutes across all devices sharing this household ID.",
+              "Everything syncs live across all devices in this household. Changes made at the same time on two devices are merged.",
             ),
             h("div", { className: "muted text-xs font-bold", style: { marginBottom: 6 } }, "Share with family:"),
             h("div", { style: { background: "#FFF8F0", border: "1.5px solid #F0E6D3", borderRadius: 8, padding: "10px 12px", fontSize: 13, fontFamily: "monospace", marginBottom: 12, wordBreak: "break-all" } },

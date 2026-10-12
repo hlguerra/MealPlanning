@@ -5,7 +5,7 @@ const { createElement: h, useState, useEffect, useCallback } = React;
 const {
   usePersist, useCostLog, useBanner, usePinGuard,
   BottomNav, Banner,
-  HomeScreen, RecipesScreen, MealPlanScreen,
+  HomeScreen, RecipesScreen, MealPlanScreen, VoteScreen,
   GroceryScreen, PantryScreen, SettingsScreen,
 } = window.APP;
 const { uid, scaleAmt, callClaude, extractText, parseJSON } = window.APP.utils;
@@ -29,6 +29,9 @@ function App() {
   const [cookHistory,  setCookHistory]  = usePersist("hmp_cookhistory",  []);
   const [ingredients,  setIngredients]  = usePersist("hmp_ingredients",  []); // standard ingredient list
   const [priceHistory, setPriceHistory] = usePersist("hmp_pricehistory", []); // receipt-derived price history, rolling 365 days
+  const [weeklyVotes,  setWeeklyVotes]  = usePersist("hmp_weeklyVotes",  null); // This Week's Picks — batch + everyone's votes
+  const [voterName,    setVoterName]    = usePersist("hmp_voterName",    null); // who's voting on THIS device (not synced)
+  const [autoGenerate, setAutoGenerate] = useState(false); // "Generate from Picks" on the vote screen → run the generator on arrival
 
   // ── In-memory search state (persists across navigation, cleared on app close) 
   const [priceSearchResults, setPriceSearchResults] = useState(null);
@@ -41,6 +44,12 @@ function App() {
 
   // ── Manual sync function (set after startSync called) ─────────────────────
   const [syncNow, setSyncNow] = useState(null);
+  // lastSynced is only set once every doc has loaded — until then local data may be stale
+  const [syncLoaded, setSyncLoaded] = useState(!!window.APP.syncStatus?.lastSynced);
+  useEffect(() => {
+    window.APP.onSyncStatusChange = st => setSyncLoaded(!!st.lastSynced);
+    return () => { window.APP.onSyncStatusChange = null; };
+  }, []);
 
   // ── Settings save ────────────────────────────────────────────────────────────
   const saveSettings = useCallback(s => setSettings(s), [setSettings]);
@@ -63,6 +72,7 @@ function App() {
       settings:     setSettings,
       ingredients:  setIngredients,
       priceHistory: setPriceHistory,
+      weeklyVotes:  setWeeklyVotes,
     });
 
     if (!sync) return;
@@ -86,8 +96,20 @@ function App() {
       settings,
       ingredients,
       priceHistory,
+      weeklyVotes,
     });
-  }, [groceryList, recipes, costLog, spending, cookHistory, mealPlan, pantry, staples, myAppliances, settings, ingredients, priceHistory, settings.householdId]);
+  }, [groceryList, recipes, costLog, spending, cookHistory, mealPlan, pantry, staples, myAppliances, settings, ingredients, priceHistory, weeklyVotes, settings.householdId]);
+
+  // ── This Week's Picks ────────────────────────────────────────────────────────
+  // First open in a new week picks a fresh batch of 20. The pick is seeded by
+  // household + week, so if both devices do it at once they pick the same 20.
+  // Waits for sync to load so a device with stale data doesn't roll the week.
+  const weekKey = window.APP.voting.weekKeyFor();
+  useEffect(() => {
+    if (weeklyVotes?.weekKey === weekKey || !recipes.length) return;
+    if (settings.householdId && !syncLoaded) return;
+    setWeeklyVotes(cur => cur?.weekKey === weekKey ? cur : window.APP.voting.newWeek(cur, weekKey, recipes, cookHistory, settings.householdId));
+  }, [weekKey, weeklyVotes?.weekKey, recipes.length, syncLoaded]); // eslint-disable-line
 
   // ── Used-up pantry items ─────────────────────────────────────────────────────
   // When something hits 0 it disappears from the pantry — unless it's a staple
@@ -435,6 +457,21 @@ function App() {
       addCost,
       showBanner,
       ingredients,
+      weeklyVotes,
+      onNav: setScreen,
+      autoGenerate,
+      onAutoGenerateHandled: () => setAutoGenerate(false),
+    }),
+
+    vote: h(VoteScreen, {
+      weeklyVotes,
+      setWeeklyVotes,
+      recipes,
+      settings,
+      voterName,
+      setVoterName,
+      onNav: setScreen,
+      onGenerate: () => { setAutoGenerate(true); setScreen("plan"); },
     }),
 
     grocery: h(GroceryScreen, {
@@ -495,7 +532,7 @@ function App() {
     h("div", { className: "app-container" },
       screens[screen] || screens.home,
     ),
-    h(BottomNav, { active: screen, onNav: setScreen }),
+    h(BottomNav, { active: screen === "vote" ? "plan" : screen, onNav: setScreen }),
     pinModal,
   );
 }

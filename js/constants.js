@@ -130,6 +130,7 @@ window.APP.DEFAULT_SETTINGS = {
   zipCode:            "44691",
   googleSheetsUrl:    "",
   householdId:        "",
+  voters:             ["Haley", "Partner"], // who votes on This Week's Picks
 };
 
 // ── Default appliances ────────────────────────────────────────────────────────

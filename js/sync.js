@@ -41,6 +41,7 @@ const SYNCED = {
   settings:     [["settings",     "prefs"],   "settings"],
   ingredients:  [["ingredients",  "list"],    "items"],
   priceHistory: [["pricehistory", "log"],     "entries"],
+  weeklyVotes:  [["votes",        "weekly"],  "data"],
 };
 const KEYS = Object.keys(SYNCED);
 

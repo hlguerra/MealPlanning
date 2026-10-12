@@ -10,7 +10,7 @@ const deductionRowStyle = { display: "flex", alignItems: "center", gap: 6, fontS
 const deductionBoxStyle = { width: 14, height: 14, accentColor: "#2A7D4F", cursor: "pointer", flexShrink: 0 };
 
 // ── MealPlanScreen ────────────────────────────────────────────────────────────
-window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipes, cookHistory, onAddToGrocery, onAddMealPlanToGrocery, onMarkAsMade, onUndoMarkAsMade, onAddRecipeToMeal, requestPin, settings, saveSettings, myAppliances, addCost, showBanner, ingredients, pantry }) {
+window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipes, cookHistory, onAddToGrocery, onAddMealPlanToGrocery, onMarkAsMade, onUndoMarkAsMade, onAddRecipeToMeal, requestPin, settings, saveSettings, myAppliances, addCost, showBanner, ingredients, pantry, weeklyVotes, onNav, autoGenerate, onAutoGenerateHandled }) {
 
   const [generating, setGenerating] = useState(false);
   const [genError,   setGenError]   = useState("");
@@ -82,41 +82,51 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
 
   const suggestedProteins = PROTEINS.filter(p => !recentProteins.has(p) && p !== "Other").slice(0, 3);
 
+  // ── This Week's Picks ───────────────────────────────────────────────────────
+  const { voting } = window.APP;
+  const voters = voting.votersFrom(settings);
+  const weekly = weeklyVotes?.weekKey === voting.weekKeyFor() && weeklyVotes.recipeIds?.length ? weeklyVotes : null;
+  const voteProgress = voting.voteProgress(weekly, voters);
+  const progressText = voteProgress.map(p => `${p.name} ${p.count === p.total ? "✓" : `${p.count}/${p.total}`}`).join(" · ");
+
   // ── Build proposed meals from saved recipes (no AI call — zero cost) ────────
   const shuffle = arr => [...arr].sort(() => Math.random() - 0.5);
 
+  // With picks this week: 👍👍 first, then at least one 👍, then ➖/unvoted picks
+  // (varying proteins), then the rest of the library. Anything with a 👎 is out.
+  // With no votes yet, all 20 picks count as ➖ — still used before the library.
   const buildFromRecipes = (need, excludeNames = []) => {
     const excluded = new Set(excludeNames.map(n => n.toLowerCase()));
+    const tierOf = r => weekly ? voting.voteTier(weekly.votes?.[r.id], voters) : "neutral";
     const pool = recipes.filter(r =>
       !r.hidden &&
       !excluded.has(r.name.toLowerCase()) &&
       (r.mealTypes?.length ? r.mealTypes.some(t => mealTypes.includes(t)) : relevantCourses.has(r.course)) &&
-      (!proteins.length || (r.proteins || []).some(p => proteins.includes(p)))
+      (!proteins.length || (r.proteins || []).some(p => proteins.includes(p))) &&
+      tierOf(r) !== "veto"
     );
 
     // Favor recipes not made in the last 30 days; only dip into recently-made
     // ones if there aren't enough fresh matches to fill the request.
-    const fresh   = shuffle(pool.filter(r => !recentlyMade.has(r.name)));
-    const recent  = shuffle(pool.filter(r => recentlyMade.has(r.name)));
-    const ordered = [...fresh, ...recent];
+    const freshFirst = list => [
+      ...shuffle(list.filter(r => !recentlyMade.has(r.name))),
+      ...shuffle(list.filter(r => recentlyMade.has(r.name))),
+    ];
 
     // Vary proteins — same "no more than 2 of the same protein" rule the AI prompt uses.
-    const picked = [];
-    const proteinCounts = {};
-    ordered.forEach(r => {
-      if (picked.length >= need) return;
-      const mainProtein = (r.proteins || [])[0];
-      if (mainProtein && (proteinCounts[mainProtein] || 0) >= 2) return;
-      picked.push(r);
-      if (mainProtein) proteinCounts[mainProtein] = (proteinCounts[mainProtein] || 0) + 1;
-    });
-    // Protein cap left slots unfilled — top up ignoring the cap rather than leave gaps.
-    if (picked.length < need) {
-      ordered.forEach(r => {
-        if (picked.length >= need || picked.includes(r)) return;
-        picked.push(r);
-      });
+    let picked = [];
+    let rest   = pool;
+    if (weekly) {
+      const inPicks = new Set(weekly.recipeIds);
+      const picks   = pool.filter(r => inPicks.has(r.id));
+      picked = [
+        ...shuffle(picks.filter(r => tierOf(r) === "both")),
+        ...shuffle(picks.filter(r => tierOf(r) === "one")),
+      ].slice(0, need);
+      picked = voting.pickWithProteinCap(freshFirst(picks.filter(r => tierOf(r) === "neutral")), need, 2, picked);
+      rest   = pool.filter(r => !inPicks.has(r.id));
     }
+    picked = voting.pickWithProteinCap(freshFirst(rest), need, 2, picked);
 
     return picked.map(r => ({
       id:              uid(),
@@ -162,7 +172,7 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
   };
 
   // ── Generate ────────────────────────────────────────────────────────────────
-  const generate = async (keepLocked = false) => {
+  const generate = async (keepLocked = false, mode = genMode) => {
     if (!mealTypes.length) { setGenError("Select at least one meal type."); return; }
     setGenerating(true); setGenError("");
 
@@ -171,7 +181,7 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
     const need          = totalNeeded(keepLocked);
     if (need <= 0) { setGenerating(false); return; }
 
-    if (genMode === "recipes") {
+    if (mode === "recipes") {
       const newMeals = buildFromRecipes(need, keepLocked ? excludeNames : []);
       setProposed([...lockedMeals, ...newMeals]);
       setProposedAt(Date.now());
@@ -192,6 +202,14 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
     }
     setGenerating(false);
   };
+
+  // "Generate Meal Plan from Picks" on the vote screen lands here
+  React.useEffect(() => {
+    if (!autoGenerate) return;
+    onAutoGenerateHandled();
+    setGenMode("recipes");
+    generate(false, "recipes");
+  }, [autoGenerate]); // eslint-disable-line
 
   const regenerateUnlocked = async () => {
     setGenerating(true); setGenError("");
@@ -320,6 +338,17 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
       ),
     ),
 
+    // ── This Week's Picks ────────────────────────────────────────────────────
+    weekly && h(Card, { style: { marginBottom: 16, cursor: "pointer" }, onClick: () => onNav("vote") },
+      h("div", { className: "flex-between" },
+        h("div", null,
+          h("div", { className: "font-bold font-serif", style: { fontSize: 15 } }, "🗳 This Week's Picks"),
+          h("div", { className: "muted text-sm" }, `Vote on ${weekly.recipeIds.length} recipes · ${progressText}`),
+        ),
+        h("span", { style: { color: "#D4622A", fontSize: 20, fontWeight: 700 } }, "→"),
+      ),
+    ),
+
     // ── Generator ────────────────────────────────────────────────────────────
     h(Card, { style: { marginBottom: 20 } },
       h("div", { className: "font-bold font-serif mb-12", style: { fontSize: 15 } }, "✨ Meal Plan Generator"),
@@ -330,6 +359,10 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
           h("button", { type: "button", className: `mode-btn ${genMode === "recipes" ? "active" : ""}`, onClick: () => setGenMode("recipes") }, "📖 My Recipes"),
           h("button", { type: "button", className: `mode-btn ${genMode === "ai" ? "active" : ""}`, onClick: () => setGenMode("ai") }, "✨ AI"),
         ),
+        genMode === "recipes" && h("div", { className: "muted text-xs", style: { marginTop: 6 } },
+          weekly
+            ? `Uses this week's picks first (${progressText}), then the rest of your recipes.`
+            : "No picks this week — choosing from all your saved recipes."),
       ),
 
       h("div", { className: "flex gap-10", style: { marginBottom: 14 } },

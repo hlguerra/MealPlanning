@@ -20,6 +20,7 @@ window.APP.SettingsScreen = function({ settings, saveSettings, myAppliances, set
   const [newKeyword, setNewKeyword] = useState("");
   const [tagAuditInput, setTagAuditInput] = useState("");
   const [auditingTag,   setAuditingTag]   = useState(null);
+  const [votersStr,     setVotersStr]     = useState(window.APP.voting.votersFrom(settings).join(", "));
 
   const allTags = [...new Set((recipes || []).flatMap(r => r.tags || []))].sort();
 
@@ -233,6 +234,14 @@ window.APP.SettingsScreen = function({ settings, saveSettings, myAppliances, set
           h("span", { className: "muted", style: { fontWeight: 400, fontSize: 11 } }, "(blank = any)"),
         ),
         h(PillToggle, { options: PROTEINS, selected: form.defaultProteins || [], onToggle: toggleDefProtein }),
+      ),
+      h("div", { style: { marginTop: 14 } },
+        h(Input, {
+          label: "Who votes on This Week's Picks (comma-separated)",
+          value: votersStr,
+          onChange: v => { setVotersStr(v); upd("voters", v.split(",").map(x => x.trim()).filter(Boolean)); },
+          placeholder: "e.g. Haley, Partner",
+        }),
       ),
     ),
 

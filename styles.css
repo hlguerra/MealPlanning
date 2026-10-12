@@ -289,6 +289,14 @@ img {
 .vote-btn.vote-neutral.active { border-color: #7A6A55; background: #F0E6D3; }
 .vote-btn.vote-down.active    { border-color: #C0392B; background: #FBE5E1; }
 
+.vote-chevron { color: #D4622A; font-size: 12px; }
+.vote-details {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: #FFF8F0;
+  border-radius: 10px;
+}
+
 .vote-photo {
   width: 56px;
   height: 56px;

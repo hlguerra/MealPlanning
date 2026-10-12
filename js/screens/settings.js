@@ -26,6 +26,14 @@ window.APP.SettingsScreen = function({ settings, saveSettings, myAppliances, set
 
   const upd = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
+  // People/days stay as typed (so the box can be cleared) and are clamped on save
+  const clampInt = (v, min, max, fallback) => { const n = parseInt(v); return isNaN(n) ? fallback : Math.max(min, Math.min(max, n)); };
+  const saveForm = f => {
+    const clean = { ...f, people: clampInt(f.people, 1, 20, 2), days: clampInt(f.days, 1, 14, 7) };
+    saveSettings(clean);
+    setForm(cur => ({ ...cur, people: clean.people, days: clean.days }));
+  };
+
   const toggleDefMealType = t => upd("defaultMealTypes",
     (form.defaultMealTypes || []).includes(t)
       ? form.defaultMealTypes.filter(x => x !== t)
@@ -56,7 +64,7 @@ window.APP.SettingsScreen = function({ settings, saveSettings, myAppliances, set
     upd("keywords", (form.keywords || []).map(k => k.label === label ? { ...k, default: !k.default } : k));
 
   const saveAll = () => {
-    saveSettings(form);
+    saveForm(form);
     setSaved(true);
     showBanner("✓ Settings saved", "success");
     setTimeout(() => setSaved(false), 1800);
@@ -74,7 +82,7 @@ window.APP.SettingsScreen = function({ settings, saveSettings, myAppliances, set
       }
       const updated = { ...form, pin: newPin1 };
       setForm(updated);
-      saveSettings(updated);
+      saveForm(updated);
       setNewPin1(""); setNewPin2("");
       setPinMsg("✓ PIN updated!");
       setTimeout(() => setPinMsg(""), 2500);
@@ -89,7 +97,7 @@ window.APP.SettingsScreen = function({ settings, saveSettings, myAppliances, set
       await window.APP.firebase.createHousehold(newId, form.householdName || "My Household", form.pin);
       const updated = { ...form, householdId: newId };
       setForm(updated);
-      saveSettings(updated);
+      saveForm(updated);
       setHhMsg(`✓ Household created! Your ID is: ${newId}`);
     } catch {
       setHhMsg("Could not create household. Check your connection.");
@@ -111,7 +119,7 @@ window.APP.SettingsScreen = function({ settings, saveSettings, myAppliances, set
       if (!ok) { setJoinMsg("Wrong household ID or PIN."); setHhLoading(false); return; }
       const updated = { ...form, householdId: id, pin: p };
       setForm(updated);
-      saveSettings(updated);
+      saveForm(updated);
       setJoinMsg(`✓ Joined household ${id}`);
       setJoinId(""); setJoinPin("");
     } catch {
@@ -126,7 +134,7 @@ window.APP.SettingsScreen = function({ settings, saveSettings, myAppliances, set
       window.APP.firebase.leaveHousehold(form.householdId).catch(() => {}); // best effort
       const updated = { ...form, householdId: "" };
       setForm(updated);
-      saveSettings(updated);
+      saveForm(updated);
       showBanner("Left household. Data is now local only.", "success");
     });
   };
@@ -142,8 +150,8 @@ window.APP.SettingsScreen = function({ settings, saveSettings, myAppliances, set
       h("div", { className: "font-bold font-serif mb-12", style: { fontSize: 15 } }, "🏠 Household"),
       h(Input, { label: "Household / Family Name", value: form.householdName, onChange: v => upd("householdName", v), placeholder: "e.g. Haley's Meal Planning" }),
       h("div", { className: "flex gap-10" },
-        h("div", { style: { flex: 1 } }, h(Input, { label: "Default # of People", type: "number", value: form.people, onChange: v => upd("people", Math.max(1, +v)) })),
-        h("div", { style: { flex: 1 } }, h(Input, { label: "Default # of Days", type: "number", value: form.days || 7, onChange: v => upd("days", Math.max(1, Math.min(14, +v))) })),
+        h("div", { style: { flex: 1 } }, h(Input, { label: "Default # of People", type: "number", value: form.people, onChange: v => upd("people", v) })),
+        h("div", { style: { flex: 1 } }, h(Input, { label: "Default # of Days", type: "number", value: form.days, onChange: v => upd("days", v) })),
       ),
       h(Input, { label: "Default Zip Code (price comparisons)", value: form.zipCode || "", onChange: v => upd("zipCode", v), placeholder: "e.g. 44691" }),
     ),

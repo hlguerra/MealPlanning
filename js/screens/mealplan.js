@@ -647,13 +647,15 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
               // Grocery status. "Covered" = skip this meal in "→ Grocery" (you already have it
               // handled). Meals already sent stay counted, so adding another meal later
               // doesn't make the pantry look free for both.
-              !m.checked && h("button", {
+              // Sits side by side with Mark as Made; the Mark as Made panel wraps to its own row.
+              !m.checked && h("div", { style: { marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" } },
+              h("button", {
                 onClick: () => setMealPlan(mp => mp.map(x => x.id === m.id ? { ...x, groceriesAdded: !x.groceriesAdded } : x)),
                 title: m.groceriesAdded
                   ? "Marked covered — skipped by → Grocery. Tap to include it again."
                   : "Tap if groceries for this are already handled — → Grocery will skip it",
                 style: {
-                  marginTop: 8, marginRight: 8, padding: "4px 10px", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                  padding: "5px 10px", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer",
                   fontFamily: "'DM Sans',sans-serif",
                   border: `1.5px solid ${m.groceriesAdded || m.sentToGrocery ? "#2A7D4F" : "#F0E6D3"}`,
                   background: m.groceriesAdded || m.sentToGrocery ? "#E8F4EC" : "#FFF8F0",
@@ -662,13 +664,12 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
               }, m.groceriesAdded ? "🛒 Covered — skipped ✓" : m.sentToGrocery ? "🛒 On grocery list ✓" : "🛒 Groceries not added"),
 
               // Mark as Made — preview exactly what comes out of the pantry, untick anything you didn't use
-              !m.checked && h("div", { style: { marginTop: 8, display: "flex", gap: 8, alignItems: "center" } },
                 markingId === m.id
                   ? (() => {
                       const rows = window.APP.utils.planDeductions({ ...m, servings: mealServings(m) }, recipes, pantry || []);
                       const chosen = rows.filter(r => !skipDeductions.includes(r.pantryId));
                       const allOn = chosen.length === rows.length;
-                      return h("div", { style: { flex: 1, display: "flex", flexDirection: "column", gap: 6 } },
+                      return h("div", { style: { flex: "1 1 100%", display: "flex", flexDirection: "column", gap: 6 } },
                         h("div", { style: { display: "flex", gap: 8 } },
                           h("input", {
                             type: "date",

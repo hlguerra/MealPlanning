@@ -2,8 +2,9 @@
 // This Week's Picks: each person votes 👍 / ➖ / 👎 on this week's 20 recipes.
 // The 📖 My Recipes generator on the Meal Plan screen builds from these votes.
 window.APP = window.APP || {};
-const { createElement: h } = React;
+const { createElement: h, useState } = React;
 const { Btn, Card, SectionHeader, EmptyState } = window.APP;
+const { fmtIngredient } = window.APP.utils;
 
 const VOTE_OPTIONS = [
   { value: "up",      icon: "👍", label: "Yes" },
@@ -17,6 +18,7 @@ window.APP.VoteScreen = function({ weeklyVotes, setWeeklyVotes, recipes, setting
   const voters = votersFrom(settings);
   const me     = voters.includes(voterName) ? voterName : null;
   const others = voters.filter(v => v !== me);
+  const [openId, setOpenId] = useState(null); // recipe expanded to show ingredients + steps
 
   const picks = (weeklyVotes?.recipeIds || []).map(id => recipes.find(r => r.id === id)).filter(Boolean);
   const progress = voteProgress(weeklyVotes, voters);
@@ -87,13 +89,36 @@ window.APP.VoteScreen = function({ weeklyVotes, setWeeklyVotes, recipes, setting
             r.photo
               ? h("img", { src: r.photo, alt: "", className: "vote-photo" })
               : h("div", { className: "vote-photo vote-photo-empty" }, "🍴"),
-            h("div", { style: { flex: 1, minWidth: 0 } },
-              h("div", { className: "font-bold", style: { fontSize: 15 } }, r.name),
+            h("div", { style: { flex: 1, minWidth: 0, cursor: "pointer" }, onClick: () => setOpenId(id => id === r.id ? null : r.id) },
+              h("div", { className: "font-bold", style: { fontSize: 15 } },
+                r.name,
+                h("span", { className: "vote-chevron" }, openId === r.id ? " ▴" : " ▾"),
+              ),
               h("div", { className: "muted text-sm" }, (r.proteins || []).join(", ") || "—"),
               // Partner's status only — not which way they voted, so nobody's swayed
               others.length > 0 && h("div", { className: "muted text-xs", style: { marginTop: 2 } },
                 others.map(o => `${o}: ${votes[o] ? "voted ✓" : "not yet"}`).join(" · ")),
             ),
+          ),
+          // ── Recipe details (tap the name) ────────────────────────────────────
+          openId === r.id && h("div", { className: "vote-details" },
+            !!(r.prepTime || r.cookTime || r.servings) && h("div", { className: "muted text-xs", style: { marginBottom: 8 } },
+              [r.prepTime && `⏱ Prep ${r.prepTime}m`, r.cookTime && `🔥 Cook ${r.cookTime}m`, r.servings && `👥 Serves ${r.servings}`].filter(Boolean).join(" · ")),
+            h("div", { className: "font-bold font-serif", style: { fontSize: 13, marginBottom: 4 } }, "Ingredients"),
+            (r.ingredients || []).length
+              ? (r.ingredients || []).map((ing, i) => h("div", { key: ing.id || i, className: "flex-between divider", style: { padding: "4px 0", fontSize: 13 } },
+                  h("span", null, ing.name),
+                  h("span", { className: "muted" }, fmtIngredient(ing.amount, ing.unit)),
+                ))
+              : h("div", { className: "muted text-xs" }, "No ingredients saved."),
+            (r.steps || []).filter(Boolean).length > 0 && h(React.Fragment, null,
+              h("div", { className: "font-bold font-serif", style: { fontSize: 13, margin: "10px 0 4px" } }, "Instructions"),
+              (r.steps || []).filter(Boolean).map((st, i) => h("div", { key: i, className: "flex gap-8", style: { marginBottom: 6, fontSize: 13, lineHeight: 1.5 } },
+                h("div", { className: "step-num" }, i + 1),
+                h("div", null, st),
+              )),
+            ),
+            r.notes && h("div", { className: "muted text-sm italic", style: { marginTop: 6 } }, `📝 ${r.notes}`),
           ),
           h("div", { className: "flex gap-8", style: { marginTop: 10 } },
             VOTE_OPTIONS.map(o => h("button", {

@@ -80,7 +80,7 @@ window.APP.APPLIANCES = [
 window.APP.UNITS = [
   "tsp", "tbsp", "fl oz", "cup", "pint", "quart", "gallon", "ml", "l",
   "oz", "lb", "g", "kg",
-  "count", "clove", "pinch",
+  "count", "can", "clove", "pinch",
 ];
 
 // Conversion factor to a base unit within each type (ml for volume, g for weight).
@@ -131,6 +131,11 @@ window.APP.DEFAULT_SETTINGS = {
   googleSheetsUrl:    "",
   householdId:        "",
   voters:             ["Haley", "Partner"], // who votes on This Week's Picks
+  // Other names for the same ingredient, so they match and combine (aka is comma-separated)
+  ingredientAliases:  [
+    { name: "pepper", aka: "black pepper" },
+    { name: "garlic", aka: "garlic clove, clove garlic, clove of garlic" },
+  ],
 };
 
 // ── Default appliances ────────────────────────────────────────────────────────

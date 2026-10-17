@@ -7,7 +7,7 @@ const { MEAL_TYPES, MEAL_ICONS, PROTEINS, APPLIANCES } = window.APP;
 
 // ── SettingsScreen ────────────────────────────────────────────────────────────
 window.APP.SettingsScreen = function({ settings, saveSettings, myAppliances, setMyAppliances, costTotal, requestPin, showBanner, recipes, setRecipes, addCost }) {
-  const [form,       setForm]       = useState({ ...settings });
+  const [form,       setForm]       = useState({ ingredientAliases: window.APP.DEFAULT_SETTINGS.ingredientAliases, ...settings });
   const [saved,      setSaved]      = useState(false);
   const [newPin1,    setNewPin1]    = useState("");
   const [newPin2,    setNewPin2]    = useState("");
@@ -62,6 +62,12 @@ window.APP.SettingsScreen = function({ settings, saveSettings, myAppliances, set
 
   const toggleKeywordDefault = label =>
     upd("keywords", (form.keywords || []).map(k => k.label === label ? { ...k, default: !k.default } : k));
+
+  // ── Ingredient AKAs ───────────────────────────────────────────────────────
+  const aliases     = form.ingredientAliases || [];
+  const updAlias    = (i, k, v) => upd("ingredientAliases", aliases.map((a, j) => j === i ? { ...a, [k]: v } : a));
+  const addAlias    = () => upd("ingredientAliases", [...aliases, { name: "", aka: "" }]);
+  const removeAlias = i => upd("ingredientAliases", aliases.filter((_, j) => j !== i));
 
   const saveAll = () => {
     saveForm(form);
@@ -288,6 +294,27 @@ window.APP.SettingsScreen = function({ settings, saveSettings, myAppliances, set
           )
         ),
       ),
+    ),
+
+    // ── Ingredient AKAs ───────────────────────────────────────────────────────
+    h(Card, { style: { marginBottom: 16 } },
+      h("div", { className: "font-bold font-serif mb-4", style: { fontSize: 15 } }, "🧄 Ingredient AKAs"),
+      h("div", { className: "muted text-sm", style: { marginBottom: 12 } },
+        "Other names for the same ingredient, so they match in the pantry and combine on the grocery list. Only exact names match — garlic powder stays separate from garlic."),
+      aliases.length === 0 && h("div", { className: "muted text-sm italic", style: { marginBottom: 10 } }, "No AKAs yet."),
+      aliases.map((a, i) =>
+        h("div", { key: i, className: "flex gap-8", style: { alignItems: "center", marginBottom: 8 } },
+          h("input", { className: "form-input", style: { flex: 2, minWidth: 0 }, value: a.name, onChange: e => updAlias(i, "name", e.target.value), placeholder: "e.g. pepper" }),
+          h("span", { className: "muted text-xs" }, "aka"),
+          h("input", { className: "form-input", style: { flex: 3, minWidth: 0 }, value: a.aka, onChange: e => updAlias(i, "aka", e.target.value), placeholder: "e.g. black pepper, cracked pepper" }),
+          h("button", {
+            onClick: () => removeAlias(i), title: "Remove",
+            style: { background: "none", border: "none", cursor: "pointer", color: "#C0392B", fontSize: 18, padding: 0, lineHeight: 1 },
+          }, "×"),
+        )
+      ),
+      h(Btn, { label: "Add AKA", variant: "ghost", className: "btn-sm", onClick: addAlias }),
+      h("div", { className: "muted text-xs", style: { marginTop: 8 } }, "Separate multiple AKAs with commas. Tap Save Settings to apply."),
     ),
 
     // ── Tag audit ─────────────────────────────────────────────────────────────

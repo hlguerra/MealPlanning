@@ -24,6 +24,8 @@ function App() {
   const [staples,      setStaples]      = usePersist("hmp_staples",      SEED_STAPLES);
   const [myAppliances, setMyAppliances] = usePersist("hmp_appliances",   DEFAULT_APPLIANCES);
   const [settings,     setSettings]     = usePersist("hmp_settings",     window.APP.DEFAULT_SETTINGS);
+  // Ingredient AKAs feed every name match, so set them before anything renders
+  window.APP.utils.setIngredientAliases(settings.ingredientAliases ?? window.APP.DEFAULT_SETTINGS.ingredientAliases);
   const [costLog,      setCostLog]      = usePersist("hmp_costlog",      []);
   const [spending,     setSpending]     = usePersist("hmp_spending",     []);
   const [cookHistory,  setCookHistory]  = usePersist("hmp_cookhistory",  []);

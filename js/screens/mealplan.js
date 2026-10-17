@@ -95,7 +95,8 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
   // With picks this week: 👍👍 first, then at least one 👍, then ➖/unvoted picks
   // (varying proteins), then the rest of the library. Anything with a 👎 is out.
   // With no votes yet, all 20 picks count as ➖ — still used before the library.
-  const buildFromRecipes = (need, excludeNames = []) => {
+  // usePicks=false (regenerating ❌ slots) draws from the whole library; 👎 is still out.
+  const buildFromRecipes = (need, excludeNames = [], usePicks = true) => {
     const excluded = new Set(excludeNames.map(n => n.toLowerCase()));
     const tierOf = r => weekly ? voting.voteTier(weekly.votes?.[r.id], voters) : "neutral";
     const pool = recipes.filter(r =>
@@ -116,7 +117,7 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
     // Vary proteins — same "no more than 2 of the same protein" rule the AI prompt uses.
     let picked = [];
     let rest   = pool;
-    if (weekly) {
+    if (weekly && usePicks) {
       const inPicks = new Set(weekly.recipeIds);
       const picks   = pool.filter(r => inPicks.has(r.id));
       picked = [
@@ -219,7 +220,7 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
     const excludeNames = [...new Set([...proposed.map(p => p.name), ...mealPlan.map(m => m.name)])];
 
     if (genMode === "recipes") {
-      const newMeals = buildFromRecipes(need, excludeNames);
+      const newMeals = buildFromRecipes(need, excludeNames, false);
       setProposed([...lockedMeals, ...newMeals]);
       setProposedAt(Date.now());
       if (newMeals.length < need) setGenError(`Only found ${newMeals.length} of ${need} matching saved recipes — fill the rest manually, or switch to AI and regenerate the ❌ slots.`);
@@ -241,7 +242,9 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
   };
 
   const acceptPlan = () => {
-    setMealPlan(mp => [...mp, ...proposed.map(p => ({ ...p, id: uid(), checked: false, servings: people }))]);
+    // Saved recipes keep their own serving count; AI meals use the people count
+    const servingsFor = p => window.APP.utils.mealRecipes(p, recipes)[0]?.servings || people;
+    setMealPlan(mp => [...mp, ...proposed.map(p => ({ ...p, id: uid(), checked: false, servings: servingsFor(p) }))]);
     setProposed([]);
     setProposedAt(null);
     setLocked({});

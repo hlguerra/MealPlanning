@@ -50,7 +50,15 @@ window.APP.utils = {
   // Used to match "chicken breasts, boneless" to "chicken breast" for
   // pantry/grocery/recipe combining. Intentionally simple — not a full NLP match.
   // normalizeIngName("Chicken Breasts, Boneless") → "chicken breast"
+  // Names set up as an AKA (Settings → Ingredient AKAs) come back as the main
+  // name, so "black pepper" → "pepper".
   normalizeIngName(name = "") {
+    const n = window.APP.utils.baseIngName(name);
+    return (window.APP.ingredientAliasMap || {})[n] || n;
+  },
+
+  // normalizeIngName without the AKA lookup
+  baseIngName(name = "") {
     const STRIP_WORDS = [
       "fresh", "frozen", "boneless", "skinless", "chopped", "diced", "minced",
       "sliced", "shredded", "grated", "large", "small", "medium", "extra",
@@ -66,6 +74,19 @@ window.APP.utils = {
          .replace(/\b(\w+)(ches|shes|xes|oes)\b/g, (_, stem, suf) => stem + suf.slice(0, -2))
          .replace(/\b(\w+[^s])s\b/g, "$1");
     return n.trim();
+  },
+
+  // Builds the AKA lookup normalizeIngName uses from settings.ingredientAliases
+  // ([{ name: "pepper", aka: "black pepper, cracked pepper" }]).
+  setIngredientAliases(aliases = []) {
+    const { baseIngName } = window.APP.utils;
+    const map = {};
+    (aliases || []).forEach(({ name, aka }) => {
+      const main = baseIngName(name);
+      if (!main) return;
+      String(aka || "").split(",").map(baseIngName).filter(a => a && a !== main).forEach(a => { map[a] = main; });
+    });
+    window.APP.ingredientAliasMap = map;
   },
 
   // ── Unit normalization ─────────────────────────────────────────────────────
@@ -91,6 +112,7 @@ window.APP.utils = {
       kilogram: "kg", kilograms: "kg", kgs: "kg", kilo: "kg", kilos: "kg",
       each: "count", ea: "count", whole: "count", piece: "count", pieces: "count", pc: "count", pcs: "count",
       large: "count", medium: "count", small: "count", item: "count", items: "count",
+      cans: "can", tin: "can", tins: "can",
       cloves: "clove", pinches: "pinch",
     };
     const u = String(unit || "").toLowerCase().replace(/\./g, "").replace(/\s+/g, " ").trim();
@@ -186,11 +208,11 @@ window.APP.utils = {
   },
 
   // Two ingredient-bearing items (recipe ingredient / pantry item / grocery item)
-  // are "the same" if they share a linked standard ingredientId, or — for anything
-  // not yet linked — if their names normalize to the same thing (fallback).
+  // are "the same" if they share a linked standard ingredientId, or if their names
+  // normalize to the same thing (which includes AKAs, even across linked items).
   sameIngredient(a, b) {
     const { normalizeIngName } = window.APP.utils;
-    if (a.ingredientId && b.ingredientId) return a.ingredientId === b.ingredientId;
+    if (a.ingredientId && b.ingredientId && a.ingredientId === b.ingredientId) return true;
     return normalizeIngName(a.name) === normalizeIngName(b.name);
   },
 
@@ -207,7 +229,7 @@ window.APP.utils = {
   },
 
   // Cleans up an AI-produced ingredient list so it fits the rest of the app:
-  // numeric amounts, standard units (an unrecognized unit like "can" moves into
+  // numeric amounts, standard units (an unrecognized unit like "jar" moves into
   // the description), linked to the standard list, and a valid grocery section.
   cleanIngredients(raw = [], standardList = []) {
     const { uid, canonUnit, linkIngredients, fixSection } = window.APP.utils;

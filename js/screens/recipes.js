@@ -177,7 +177,12 @@ URL: ${importUrl.trim()}`,
   };
 
   // ── Render ─────────────────────────────────────────────────────────────────
-  if (view === "detail" && active) return h(RecipeDetail, { recipe: active, onBack: closeDetail, onEdit: () => setView("edit"), onDelete: () => deleteRecipe(active.id), onHide: () => toggleHideRecipe(active.id), onAddToMealPlan: requestAddToMealPlan, onAddToGrocery, showBanner, priceHistory });
+  const mealTypePicker = addingMealType && h(MealTypePickerModal, { recipe: addingMealType, onPick: confirmAddToMealPlan, onClose: () => setAddingMealType(null) });
+
+  if (view === "detail" && active) return h(React.Fragment, null,
+    h(RecipeDetail, { recipe: active, onBack: closeDetail, onEdit: () => setView("edit"), onDelete: () => deleteRecipe(active.id), onHide: () => toggleHideRecipe(active.id), onAddToMealPlan: requestAddToMealPlan, onAddToGrocery, showBanner, priceHistory }),
+    mealTypePicker,
+  );
   if (view === "edit"   && active) return h(RecipeForm,   { recipe: active, onSave: saveRecipe, onCancel: closeDetail, knownIngredientNames, ingredients, addNewIngredient, allTags });
   if (view === "new")              return h(RecipeForm,   { recipe: null,   onSave: saveRecipe, onCancel: () => setView("list"), knownIngredientNames, ingredients, addNewIngredient, allTags });
 
@@ -190,7 +195,7 @@ URL: ${importUrl.trim()}`,
       ),
     ),
     auditingTag && h(window.APP.TagAuditModal, { tag: auditingTag, recipes, setRecipes, addCost, showBanner, onClose: () => setAuditingTag(null) }),
-    addingMealType && h(MealTypePickerModal, { recipe: addingMealType, onPick: confirmAddToMealPlan, onClose: () => setAddingMealType(null) }),
+    mealTypePicker,
     h(SectionHeader, {
       title: "Recipes",
       action: h("div", { className: "flex gap-8", style: { flexWrap: "wrap", justifyContent: "flex-end" } },

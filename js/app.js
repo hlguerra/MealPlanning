@@ -111,6 +111,15 @@ function App() {
     setWeeklyVotes(cur => cur?.weekKey === weekKey ? cur : window.APP.voting.newWeek(cur, weekKey, recipes, cookHistory, settings.householdId));
   }, [weekKey, weeklyVotes?.weekKey, recipes.length, syncLoaded]); // eslint-disable-line
 
+  // Swap any non-main-course recipes out of this week's batch (e.g. a recipe's
+  // course was changed to Side after it was picked). Votes on mains are kept.
+  useEffect(() => {
+    if (weeklyVotes?.weekKey !== weekKey || !recipes.length) return;
+    if (settings.householdId && !syncLoaded) return;
+    const cleaned = window.APP.voting.cleanWeek(weeklyVotes, recipes, cookHistory, settings.householdId);
+    if (cleaned) setWeeklyVotes(cleaned);
+  }, [weekKey, weeklyVotes, recipes, syncLoaded]); // eslint-disable-line
+
   // ── Used-up pantry items ─────────────────────────────────────────────────────
   // When something hits 0 it disappears from the pantry — unless it's a staple
   // (📌), which stays visible as "out" so you know to restock it. Runs on every

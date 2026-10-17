@@ -35,8 +35,8 @@ const seededShuffle = (arr, seedStr) => {
   return out;
 };
 
-const isDinnerRecipe = r =>
-  !r.hidden && (r.mealTypes?.length ? r.mealTypes.includes("Dinner") : ["Main", "Side"].includes(r.course));
+// Only main courses go up for a vote — no sides, desserts, etc.
+const isMainCourse = r => !r.hidden && r.course === "Main";
 
 // Take from `ordered` until `need` are picked, no more than `cap` of the same main
 // protein (counting what's already in `picked`). If the cap leaves gaps, top up ignoring it.
@@ -59,18 +59,19 @@ const pickWithProteinCap = (ordered, need, cap, picked = []) => {
 };
 
 // This week's batch: recipes not made in 30 days and not in last week's batch first
-const pickWeeklyRecipes = (recipes, cookHistory, prevIds, seed) => {
+// `keep` are recipes already in the batch that stay put (see cleanWeek)
+const pickWeeklyRecipes = (recipes, cookHistory, prevIds, seed, keep = []) => {
   const recentNames = new Set((cookHistory || [])
     .filter(e => Date.now() - e.madeAt < 30 * DAY_MS)
     .flatMap(e => (e.recipeName || "").split(" + ")));
   const prev = new Set(prevIds || []);
   const isStale = r => recentNames.has(r.name) || prev.has(r.id);
-  const pool = recipes.filter(isDinnerRecipe);
+  const pool = recipes.filter(isMainCourse);
   const ordered = [
     ...seededShuffle(pool.filter(r => !isStale(r)), seed),
     ...seededShuffle(pool.filter(isStale), seed),
   ];
-  return pickWithProteinCap(ordered, WEEKLY_COUNT, WEEKLY_PROTEIN_CAP).map(r => r.id);
+  return pickWithProteinCap(ordered, WEEKLY_COUNT, WEEKLY_PROTEIN_CAP, keep).map(r => r.id);
 };
 
 // A fresh weeklyVotes object for `weekKey`, rolling the current batch into prevRecipeIds
@@ -82,6 +83,19 @@ const newWeek = (current, weekKey, recipes, cookHistory, householdId) => {
     prevRecipeIds,
     votes: {},
   };
+};
+
+// A batch picked before the main-courses-only rule may hold sides etc. Drop
+// those and top up with mains, keeping the mains already there and their votes.
+// Returns null if the batch is already clean.
+const cleanWeek = (current, recipes, cookHistory, householdId) => {
+  const batch = (current?.recipeIds || []).map(id => recipes.find(r => r.id === id)).filter(Boolean);
+  const keep = batch.filter(isMainCourse);
+  if (keep.length === batch.length) return null;
+  const recipeIds = pickWeeklyRecipes(recipes, cookHistory, current.prevRecipeIds,
+    `${householdId || ""}:${current.weekKey}`, keep);
+  const votes = Object.fromEntries(Object.entries(current.votes || {}).filter(([id]) => recipeIds.includes(id)));
+  return { ...current, recipeIds, votes };
 };
 
 // "veto" (anyone 👎) | "both" (every voter 👍) | "one" (at least one 👍) | "neutral"
@@ -108,4 +122,4 @@ const votersFrom = settings => {
   return v.length ? v : window.APP.DEFAULT_SETTINGS.voters;
 };
 
-window.APP.voting = { weekKeyFor, seededShuffle, isDinnerRecipe, pickWithProteinCap, pickWeeklyRecipes, newWeek, voteTier, voteProgress, votersFrom };
+window.APP.voting = { weekKeyFor, seededShuffle, isMainCourse, pickWithProteinCap, pickWeeklyRecipes, newWeek, cleanWeek, voteTier, voteProgress, votersFrom };

@@ -66,6 +66,8 @@ window.APP.utils = {
       "hard", "boiled", "hardboiled", "soft", "scrambled", "fried", "poached",
       "beaten", "melted", "softened", "room", "temperature", "peeled", "trimmed",
       "cubed", "crushed", "packed", "unsalted", "salted",
+      // describe the same pantry item: sea salt = salt, mild chili powder = chili powder
+      "mild", "sea", "kosher", "table", "coarse", "fine", "pure", "virgin", "extra-virgin",
     ];
     let n = name.toLowerCase().replace(/[,.]/g, " ").trim();
     n = n.split(/\s+/).filter(w => w && !STRIP_WORDS.includes(w)).join(" ");
@@ -87,6 +89,26 @@ window.APP.utils = {
       String(aka || "").split(",").map(baseIngName).filter(a => a && a !== main).forEach(a => { map[a] = main; });
     });
     window.APP.ingredientAliasMap = map;
+  },
+
+  // ── Section overrides ─────────────────────────────────────────────────────────
+  // Store sections you've picked yourself, from settings.sectionOverrides
+  // ({ "olive oil": "Pantry & Dry Goods" }, keyed by normalizeIngName). They win
+  // over the keyword categorizer and over the section saved on an item.
+  setSectionOverrides(overrides = {}) {
+    window.APP.sectionOverrideMap = overrides || {};
+  },
+  sectionOverride(name = "") {
+    const key = window.APP.utils.normalizeIngName(name);
+    return (key && (window.APP.sectionOverrideMap || {})[key]) || null;
+  },
+
+  // The section an item is shown under: your override, else its saved section.
+  // Unknown sections fall under "Other" so nothing goes missing.
+  sectionFor(item) {
+    const SECTIONS = window.APP.SECTIONS || [];
+    const s = window.APP.utils.sectionOverride(item.name) || item.section;
+    return SECTIONS.includes(s) ? s : "Other";
   },
 
   // ── Unit normalization ─────────────────────────────────────────────────────
@@ -144,6 +166,8 @@ window.APP.utils = {
   // (other than "Other"), otherwise auto-categorized from the name.
   fixSection(section, name) {
     const SECTIONS = window.APP.SECTIONS || [];
+    const override = window.APP.utils.sectionOverride(name);
+    if (override) return override;
     if (section && section !== "Other" && SECTIONS.includes(section)) return section;
     return window.APP.categorize ? window.APP.categorize(name || "") : "Other";
   },

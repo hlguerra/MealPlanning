@@ -12,6 +12,10 @@ window.APP.categorize = function(name = "") {
   const s = name.toLowerCase().trim();
   if (!s) return "Other";
 
+  // A section you picked yourself beats the keyword guess
+  const override = window.APP.utils.sectionOverride(name);
+  if (override) return override;
+
   // Check each section's keywords in priority order.
   // More specific sections (Meat, Frozen) are checked before general ones.
   for (const [section, keywords] of Object.entries(KEYWORD_MAP)) {

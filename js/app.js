@@ -26,6 +26,7 @@ function App() {
   const [settings,     setSettings]     = usePersist("hmp_settings",     window.APP.DEFAULT_SETTINGS);
   // Ingredient AKAs feed every name match, so set them before anything renders
   window.APP.utils.setIngredientAliases(settings.ingredientAliases ?? window.APP.DEFAULT_SETTINGS.ingredientAliases);
+  window.APP.utils.setSectionOverrides(settings.sectionOverrides);
   const [costLog,      setCostLog]      = usePersist("hmp_costlog",      []);
   const [spending,     setSpending]     = usePersist("hmp_spending",     []);
   const [cookHistory,  setCookHistory]  = usePersist("hmp_cookhistory",  []);
@@ -212,6 +213,15 @@ function App() {
     setIngredients(list => [...list, created]);
     return created;
   }, [setIngredients]);
+
+  // ── Section picker ─────────────────────────────────────────────────────────────
+  // Remembers a store section for an ingredient household-wide, so the pantry,
+  // grocery list, and anything added later all put it in the same place.
+  const setItemSection = useCallback((name, section) => {
+    const key = window.APP.utils.normalizeIngName(name);
+    if (!key) return;
+    setSettings(s => ({ ...s, sectionOverrides: { ...(s.sectionOverrides || {}), [key]: section } }));
+  }, [setSettings]);
 
   // ── Quick add (home screen) ──────────────────────────────────────────────────
   const quickAddGrocery = useCallback(item => {
@@ -503,6 +513,7 @@ function App() {
       addNewIngredient,
       priceHistory,
       onSavePriceHistory: savePriceHistory,
+      onSetSection: setItemSection,
     }),
 
     pantry: h(PantryScreen, {
@@ -521,6 +532,7 @@ function App() {
       knownIngredientNames,
       ingredients,
       addNewIngredient,
+      onSetSection: setItemSection,
     }),
 
     settings: h(SettingsScreen, {

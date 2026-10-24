@@ -472,6 +472,37 @@ img {
   padding-left: 4px;
 }
 
+/* Pantry: collapsible section headers and the folded-staples row */
+.pantry-section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+.pantry-chevron { width: 10px; }
+.pantry-section-count { font-weight: 500; letter-spacing: 0; text-transform: none; }
+
+.pantry-staples-toggle {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  border-bottom: 1px solid #F0E6D3;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  font-size: 13px;
+  color: #7A6A55;
+  padding: 8px 0;
+}
+
 .grocery-item {
   display: flex;
   align-items: center;

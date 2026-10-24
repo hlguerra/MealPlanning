@@ -2,12 +2,12 @@
 window.APP = window.APP || {};
 const { createElement: h, useState } = React;
 const { Btn, Card, SectionHeader, EmptyState } = window.APP;
-const { uid, callClaude, extractText, parseJSON } = window.APP.utils;
+const { uid, callClaude, extractText, parseJSON, sectionFor } = window.APP.utils;
 const { categorize } = window.APP;
 const { SECTIONS } = window.APP;
 
 // ── PantryScreen ──────────────────────────────────────────────────────────────
-window.APP.PantryScreen = function({ pantry, setPantry, addCost, knownIngredientNames, ingredients, addNewIngredient, recipes, setRecipes, onAddToMealPlan, showBanner, groceryList, onAddToGrocery, onAddToPantry, staples, setStaples }) {
+window.APP.PantryScreen = function({ pantry, setPantry, addCost, knownIngredientNames, ingredients, addNewIngredient, recipes, setRecipes, onAddToMealPlan, showBanner, groceryList, onAddToGrocery, onAddToPantry, staples, setStaples, onSetSection }) {
   const [selectedIng, setSelectedIng] = useState(null); // { id, name }
   const [amount,  setAmount]  = useState("");
   const [unit,    setUnit]    = useState("");
@@ -21,6 +21,10 @@ window.APP.PantryScreen = function({ pantry, setPantry, addCost, knownIngredient
   const [pickingId,    setPickingId]    = useState(null); // suggestion showing the meal-type buttons
   const [editingId, setEditingId] = useState(null);
   const [draft,     setDraft]     = useState(null);
+  // Per-device view state: collapsed store sections, and sections whose stocked staples are expanded
+  const [collapsed,   setCollapsed]   = window.APP.usePersist("hmp_pantryCollapsed",   []);
+  const [staplesOpen, setStaplesOpen] = window.APP.usePersist("hmp_pantryStaplesOpen", []);
+  const toggleIn = (setList, key) => setList(l => l.includes(key) ? l.filter(k => k !== key) : [...l, key]);
 
   // ── Item actions (no PIN required) ─────────────────────────────────────────
   const addItem = () => {
@@ -39,17 +43,19 @@ window.APP.PantryScreen = function({ pantry, setPantry, addCost, knownIngredient
 
   const startEdit = item => {
     setEditingId(item.id);
-    setDraft({ name: item.name, ingredientId: item.ingredientId, amount: item.amount ?? "", unit: item.unit || "" });
+    setDraft({ name: item.name, ingredientId: item.ingredientId, amount: item.amount ?? "", unit: item.unit || "", section: sectionFor(item), pickedSection: false });
   };
 
   const saveEdit = () => {
     if (!draft?.name) return;
     const amt = parseFloat(draft.amount);
+    // A section picked here is remembered for this ingredient everywhere
+    if (draft.pickedSection) onSetSection(draft.name, draft.section);
     setPantry(p => p.map(i => i.id === editingId ? {
       ...i,
       name: draft.name,
       ingredientId: draft.ingredientId,
-      section: draft.name !== i.name ? categorize(draft.name) : i.section,
+      section: draft.pickedSection ? draft.section : draft.name !== i.name ? categorize(draft.name) : i.section,
       amount: isNaN(amt) ? "" : amt,
       unit: draft.unit,
     } : i));
@@ -172,16 +178,87 @@ Return ONLY a valid JSON array, no markdown fences:
   const outNotOnList = outItems.filter(i => !onList(i));
 
   // ── Grouping ────────────────────────────────────────────────────────────────
-  // Unknown sections fall under "Other" so nothing goes missing. Within a section:
-  // use-soon first, out-of-stock last.
+  // sectionFor applies sections you've picked and puts unknown ones under "Other".
+  // Within a section: use-soon first, out-of-stock last.
   const rank = i => (isOut(i) ? 2 : 0) - (i.useSoon ? 1 : 0);
   const grouped = SECTIONS.reduce((acc, s) => {
     const items = pantry
-      .filter(i => (SECTIONS.includes(i.section) ? i.section : "Other") === s)
+      .filter(i => sectionFor(i) === s)
       .sort((a, b) => rank(a) - rank(b));
     if (items.length) acc[s] = items;
     return acc;
   }, {});
+
+  // Staples that are stocked and not flagged fold into a collapsed "📌 N staples" row;
+  // out, use-soon, or mid-edit staples stay in the main list so they get noticed.
+  const isFolded = item => isStaple(item) && !isOut(item) && !item.useSoon && editingId !== item.id;
+
+  const renderItem = item =>
+    h("div", { key: item.id, style: { display: "flex", flexWrap: editingId === item.id ? "wrap" : undefined, alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid #F0E6D3" } },
+      editingId === item.id && draft
+        ? h(React.Fragment, null,
+            h(window.APP.IngredientSelect, {
+              ingredients: ingredients || [],
+              selectedId: draft.ingredientId,
+              onSelect: sel => setDraft(d => ({ ...d, name: sel.name, ingredientId: sel.id })),
+              onAddNew: name => addNewIngredient(name),
+              placeholder: "Search ingredient…",
+            }),
+            h("input", {
+              className: "form-input-sm",
+              style: { width: 56, flexShrink: 0 },
+              value: draft.amount,
+              onChange: e => setDraft(d => ({ ...d, amount: e.target.value })),
+              placeholder: "Amt", type: "number", min: "0",
+            }),
+            h("select", {
+              className: "form-input-sm",
+              style: { width: 74, flexShrink: 0 },
+              value: draft.unit,
+              onChange: e => setDraft(d => ({ ...d, unit: e.target.value })),
+            },
+              h("option", { value: "" }, "unit"),
+              UNITS.map(u => h("option", { key: u, value: u }, u)),
+            ),
+            h("button", {
+              onClick: saveEdit,
+              style: { background: "none", border: "none", cursor: "pointer", color: "#2A7D4F", fontSize: 18 },
+              title: "Save",
+            }, "✓"),
+            h(window.APP.SectionSelect, {
+              value: draft.section,
+              onChange: section => setDraft(d => ({ ...d, section, pickedSection: true })),
+            }),
+          )
+        : h("span", { onClick: () => startEdit(item), style: { flex: 1, fontSize: 14, cursor: "pointer", color: isOut(item) ? "#7A6A55" : undefined } },
+            item.name,
+            isOut(item)
+              ? h("span", { className: "warn text-xs", style: { marginLeft: 6, fontWeight: 600 } }, "out")
+              : item.amount ? ` — ${item.amount}${item.unit ? " " + item.unit : ""}` : "",
+          ),
+      editingId !== item.id && isOut(item) && (onList(item)
+        ? h("span", { className: "muted text-xs", style: { flexShrink: 0 } }, "🛒 on list")
+        : h("button", {
+            onClick: () => addToList(item),
+            title: "Add to grocery list",
+            style: { background: "#E8F4EC", border: "1.5px solid #2A7D4F", borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 600, color: "#2A7D4F", padding: "2px 8px", flexShrink: 0, fontFamily: "'DM Sans',sans-serif" },
+          }, "+ 🛒")),
+      h("button", {
+        onClick: () => setPantry(p => p.map(i => i.id === item.id ? { ...i, useSoon: !i.useSoon } : i)),
+        title: item.useSoon ? "Marked use soon — tap to clear" : "Mark as use soon",
+        style: { background: item.useSoon ? "#FDE8D8" : "none", border: `1.5px solid ${item.useSoon ? "#D4622A" : "#F0E6D3"}`, borderRadius: 8, cursor: "pointer", fontSize: 14, padding: "2px 6px", opacity: item.useSoon ? 1 : 0.5 },
+      }, "⏰"),
+      h("button", {
+        onClick: () => toggleStaple(item),
+        title: isStaple(item) ? "Staple — stays listed when out. Tap to unpin." : "Pin as a staple so it stays listed when it runs out",
+        style: { background: isStaple(item) ? "#FDE8D8" : "none", border: `1.5px solid ${isStaple(item) ? "#D4622A" : "#F0E6D3"}`, borderRadius: 8, cursor: "pointer", fontSize: 14, padding: "2px 6px", opacity: isStaple(item) ? 1 : 0.5 },
+      }, "📌"),
+      h("button", {
+        onClick: () => removeItem(item.id),
+        style: { background: "none", border: "none", cursor: "pointer", color: "#C0392B", fontSize: 18, opacity: 0.5 },
+        title: "Remove item",
+      }, "×"),
+    );
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return h("div", null,
@@ -298,73 +375,32 @@ Return ONLY a valid JSON array, no markdown fences:
     ),
 
     // ── Grouped inventory ─────────────────────────────────────────────────────
-    Object.entries(grouped).map(([section, items]) =>
-      h("div", { key: section, style: { marginBottom: 14 } },
-        h("div", { className: "grocery-section-label" }, section),
-        items.map(item =>
-          h("div", { key: item.id, style: { display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid #F0E6D3" } },
-            editingId === item.id && draft
-              ? h(React.Fragment, null,
-                  h(window.APP.IngredientSelect, {
-                    ingredients: ingredients || [],
-                    selectedId: draft.ingredientId,
-                    onSelect: sel => setDraft(d => ({ ...d, name: sel.name, ingredientId: sel.id })),
-                    onAddNew: name => addNewIngredient(name),
-                    placeholder: "Search ingredient…",
-                  }),
-                  h("input", {
-                    className: "form-input-sm",
-                    style: { width: 56, flexShrink: 0 },
-                    value: draft.amount,
-                    onChange: e => setDraft(d => ({ ...d, amount: e.target.value })),
-                    placeholder: "Amt", type: "number", min: "0",
-                  }),
-                  h("select", {
-                    className: "form-input-sm",
-                    style: { width: 74, flexShrink: 0 },
-                    value: draft.unit,
-                    onChange: e => setDraft(d => ({ ...d, unit: e.target.value })),
-                  },
-                    h("option", { value: "" }, "unit"),
-                    UNITS.map(u => h("option", { key: u, value: u }, u)),
-                  ),
-                  h("button", {
-                    onClick: saveEdit,
-                    style: { background: "none", border: "none", cursor: "pointer", color: "#2A7D4F", fontSize: 18 },
-                    title: "Save",
-                  }, "✓"),
-                )
-              : h("span", { onClick: () => startEdit(item), style: { flex: 1, fontSize: 14, cursor: "pointer", color: isOut(item) ? "#7A6A55" : undefined } },
-                  item.name,
-                  isOut(item)
-                    ? h("span", { className: "warn text-xs", style: { marginLeft: 6, fontWeight: 600 } }, "out")
-                    : item.amount ? ` — ${item.amount}${item.unit ? " " + item.unit : ""}` : "",
-                ),
-            editingId !== item.id && isOut(item) && (onList(item)
-              ? h("span", { className: "muted text-xs", style: { flexShrink: 0 } }, "🛒 on list")
-              : h("button", {
-                  onClick: () => addToList(item),
-                  title: "Add to grocery list",
-                  style: { background: "#E8F4EC", border: "1.5px solid #2A7D4F", borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 600, color: "#2A7D4F", padding: "2px 8px", flexShrink: 0, fontFamily: "'DM Sans',sans-serif" },
-                }, "+ 🛒")),
-            h("button", {
-              onClick: () => setPantry(p => p.map(i => i.id === item.id ? { ...i, useSoon: !i.useSoon } : i)),
-              title: item.useSoon ? "Marked use soon — tap to clear" : "Mark as use soon",
-              style: { background: item.useSoon ? "#FDE8D8" : "none", border: `1.5px solid ${item.useSoon ? "#D4622A" : "#F0E6D3"}`, borderRadius: 8, cursor: "pointer", fontSize: 14, padding: "2px 6px", opacity: item.useSoon ? 1 : 0.5 },
-            }, "⏰"),
-            h("button", {
-              onClick: () => toggleStaple(item),
-              title: isStaple(item) ? "Staple — stays listed when out. Tap to unpin." : "Pin as a staple so it stays listed when it runs out",
-              style: { background: isStaple(item) ? "#FDE8D8" : "none", border: `1.5px solid ${isStaple(item) ? "#D4622A" : "#F0E6D3"}`, borderRadius: 8, cursor: "pointer", fontSize: 14, padding: "2px 6px", opacity: isStaple(item) ? 1 : 0.5 },
-            }, "📌"),
-            h("button", {
-              onClick: () => removeItem(item.id),
-              style: { background: "none", border: "none", cursor: "pointer", color: "#C0392B", fontSize: 18, opacity: 0.5 },
-              title: "Remove item",
-            }, "×"),
-          )
+    Object.entries(grouped).map(([section, items]) => {
+      const isCollapsed = collapsed.includes(section);
+      const shown  = items.filter(i => !isFolded(i));
+      const folded = items.filter(isFolded);
+      const outCount = items.filter(isOut).length;
+      return h("div", { key: section, style: { marginBottom: 14 } },
+        h("button", {
+          className: "grocery-section-label pantry-section-toggle",
+          onClick: () => toggleIn(setCollapsed, section),
+          "aria-expanded": !isCollapsed,
+        },
+          h("span", { className: "pantry-chevron" }, isCollapsed ? "▸" : "▾"),
+          section,
+          h("span", { className: "pantry-section-count" },
+            ` · ${items.length}`,
+            outCount ? h("span", { className: "warn" }, ` · ${outCount} out`) : null,
+          ),
         ),
-      )
-    ),
+        !isCollapsed && shown.map(renderItem),
+        !isCollapsed && folded.length > 0 && h("button", {
+          className: "pantry-staples-toggle",
+          onClick: () => toggleIn(setStaplesOpen, section),
+          "aria-expanded": staplesOpen.includes(section),
+        }, `${staplesOpen.includes(section) ? "▾" : "▸"} 📌 ${folded.length} staple${folded.length === 1 ? "" : "s"}`),
+        !isCollapsed && staplesOpen.includes(section) && folded.map(renderItem),
+      );
+    }),
   );
 };

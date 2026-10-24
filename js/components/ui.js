@@ -276,6 +276,21 @@ window.APP.EmptyState = function({ icon, title, sub }) {
   );
 };
 
+// ── SectionSelect ─────────────────────────────────────────────────────────────
+// Store-section dropdown for an item's edit row. Takes a full line so it wraps
+// under the name/amount inputs on a phone.
+window.APP.SectionSelect = function({ value, onChange }) {
+  return h("label", { className: "flex gap-6 text-xs muted", style: { flexBasis: "100%", alignItems: "center" } },
+    "Section",
+    h("select", {
+      className: "form-input-sm",
+      style: { flex: 1 },
+      value: value || "Other",
+      onChange: e => onChange(e.target.value),
+    }, window.APP.SECTIONS.map(s => h("option", { key: s, value: s }, s))),
+  );
+};
+
 // ── SmallDivider ──────────────────────────────────────────────────────────────
 window.APP.Divider = function() {
   return h("div", { style: { borderBottom: "1px solid #F0E6D3", margin: "0" } });

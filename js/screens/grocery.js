@@ -2,12 +2,12 @@
 window.APP = window.APP || {};
 const { createElement: h, useState } = React;
 const { Btn, Card, SectionHeader, EmptyState, CollapsibleSection, SyncIndicator } = window.APP;
-const { uid, fmt$, callClaude, extractText, parseJSON } = window.APP.utils;
+const { uid, fmt$, callClaude, extractText, parseJSON, sectionFor } = window.APP.utils;
 const { categorize } = window.APP;
 const { SECTIONS, FLYER_LINKS } = window.APP;
 
 // ── GroceryScreen ─────────────────────────────────────────────────────────────
-window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setStaples, settings, spending, onRecordPurchase, addCost, showBanner, priceListResults, setPriceListResults, knownIngredientNames, onCompleteList, ingredients, addNewIngredient, priceHistory, onSavePriceHistory }) {
+window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setStaples, settings, spending, onRecordPurchase, addCost, showBanner, priceListResults, setPriceListResults, knownIngredientNames, onCompleteList, ingredients, addNewIngredient, priceHistory, onSavePriceHistory, onSetSection }) {
   const [selectedIng, setSelectedIng] = useState(null); // { id, name }
   const [qty,         setQty]         = useState("");
   const [unit,        setUnit]        = useState("");
@@ -15,6 +15,7 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
   const [editingId,   setEditingId]   = useState(null); // grocery item id currently being quantity-edited
   const [editAmt,     setEditAmt]     = useState("");
   const [editUnit,    setEditUnit]    = useState("");
+  const [editSection, setEditSection] = useState(null); // only set when a section is picked in the edit row
   const { UNITS } = window.APP;
 
   // Receipt scanning state
@@ -99,11 +100,14 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
   const toggleItem   = id => setGroceryList(l => l.map(i  => i.id === id ? { ...i, checked: !i.checked } : i));
   const deleteItem   = id => setGroceryList(l => l.filter(i => i.id !== id));
 
-  const startEditQty  = item => { setEditingId(item.id); setEditAmt(item.amount !== "" && item.amount != null ? String(item.amount) : ""); setEditUnit(item.unit || ""); };
+  const startEditQty  = item => { setEditingId(item.id); setEditAmt(item.amount !== "" && item.amount != null ? String(item.amount) : ""); setEditUnit(item.unit || ""); setEditSection(null); };
   const cancelEditQty = ()   => setEditingId(null);
   const saveEditQty   = id   => {
+    // A section picked here is remembered for this ingredient everywhere
+    const item = groceryList.find(i => i.id === id);
+    if (editSection && item) onSetSection(item.name, editSection);
     setGroceryList(l => l.map(i => i.id === id
-      ? { ...i, amount: editAmt.trim() ? +editAmt : "", unit: editUnit, checkAmount: false }
+      ? { ...i, amount: editAmt.trim() ? +editAmt : "", unit: editUnit, checkAmount: false, ...(editSection ? { section: editSection } : {}) }
       : i));
     setEditingId(null);
   };
@@ -175,8 +179,8 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
 
   // ── Grouping ────────────────────────────────────────────────────────────────
   const grouped = SECTIONS.reduce((acc, s) => {
-    // unknown sections fall under "Other" so nothing is hidden
-    const items = groceryList.filter(i => (SECTIONS.includes(i.section) ? i.section : "Other") === s);
+    // sectionFor applies sections you've picked; unknown ones fall under "Other"
+    const items = groceryList.filter(i => sectionFor(i) === s);
     if (items.length) acc[s] = items;
     return acc;
   }, {});
@@ -310,7 +314,7 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
               style: { width: 18, height: 18, accentColor: "#D4622A", cursor: "pointer" },
             }),
             h("span", { style: { flex: 1, fontSize: 14 } }, s.name),
-            h("span", { className: "muted text-xs" }, s.section),
+            h("span", { className: "muted text-xs" }, sectionFor(s)),
             h("button", { onClick: () => removeStaple(s.id), style: { background: "none", border: "none", cursor: "pointer", color: "#C0392B", fontSize: 16, opacity: 0.5 } }, "×"),
           )
         ),
@@ -343,7 +347,7 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
               style: { width: 18, height: 18, accentColor: "#2A7D4F", flexShrink: 0, cursor: "pointer" },
             }),
             editingId === item.id
-              ? h("div", { className: "flex gap-6", style: { flex: 1, alignItems: "center" } },
+              ? h("div", { className: "flex gap-6", style: { flex: 1, alignItems: "center", flexWrap: "wrap" } },
                   h("span", { style: { fontSize: 14, flexShrink: 0 } }, item.name),
                   h("input", {
                     className: "form-input-sm", style: { width: 56 }, type: "number",
@@ -360,6 +364,7 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
                   ),
                   h("button", { onClick: () => saveEditQty(item.id), style: { background: "none", border: "none", cursor: "pointer", color: "#2A7D4F", fontSize: 16 } }, "✓"),
                   h("button", { onClick: cancelEditQty, style: { background: "none", border: "none", cursor: "pointer", color: "#7A6A55", fontSize: 16 } }, "×"),
+                  h(window.APP.SectionSelect, { value: editSection || sectionFor(item), onChange: setEditSection }),
                 )
               : h("span", {
                   className: `grocery-item-name ${item.checked ? "checked" : ""}`,

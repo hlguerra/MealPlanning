@@ -488,6 +488,16 @@ img {
 }
 .pantry-chevron { width: 10px; }
 .pantry-section-count { font-weight: 500; letter-spacing: 0; text-transform: none; }
+.pantry-expand-all {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: #D4622A;
+  padding: 2px 4px;
+}
 
 .pantry-staples-toggle {
   display: block;

@@ -21,9 +21,10 @@ window.APP.PantryScreen = function({ pantry, setPantry, addCost, knownIngredient
   const [pickingId,    setPickingId]    = useState(null); // suggestion showing the meal-type buttons
   const [editingId, setEditingId] = useState(null);
   const [draft,     setDraft]     = useState(null);
-  // Per-device view state: collapsed store sections, and sections whose stocked staples are expanded
-  const [collapsed,   setCollapsed]   = window.APP.usePersist("hmp_pantryCollapsed",   []);
+  // Per-device view state: expanded store sections (all start collapsed), and sections whose stocked staples are expanded
+  const [expanded,    setExpanded]    = window.APP.usePersist("hmp_pantryExpanded",    []);
   const [staplesOpen, setStaplesOpen] = window.APP.usePersist("hmp_pantryStaplesOpen", []);
+  const [query, setQuery] = useState("");
   const toggleIn = (setList, key) => setList(l => l.includes(key) ? l.filter(k => k !== key) : [...l, key]);
 
   // ── Item actions (no PIN required) ─────────────────────────────────────────
@@ -31,11 +32,15 @@ window.APP.PantryScreen = function({ pantry, setPantry, addCost, knownIngredient
     if (!selectedIng) return;
     // Same restock rules as a grocery purchase: tops up a matching entry (or an
     // "out" one) instead of adding a duplicate line.
+    const section = sectionFor({ name: selectedIng.name, section: categorize(selectedIng.name) });
     onAddToPantry([{
-      name: selectedIng.name, ingredientId: selectedIng.id, section: categorize(selectedIng.name),
+      name: selectedIng.name, ingredientId: selectedIng.id, section,
       amount: amount.trim() ? +amount : "",
       unit,
     }]);
+    // Sections start collapsed, so open the one it landed in and say where it went
+    setExpanded(l => l.includes(section) ? l : [...l, section]);
+    showBanner(`✓ ${selectedIng.name} added to ${section}`, "success");
     setSelectedIng(null); setAmount(""); setUnit("");
   };
 
@@ -179,11 +184,12 @@ Return ONLY a valid JSON array, no markdown fences:
 
   // ── Grouping ────────────────────────────────────────────────────────────────
   // sectionFor applies sections you've picked and puts unknown ones under "Other".
-  // Within a section: use-soon first, out-of-stock last.
+  // Within a section: use-soon first, out-of-stock last. A search narrows to matching names.
+  const q = query.trim().toLowerCase();
   const rank = i => (isOut(i) ? 2 : 0) - (i.useSoon ? 1 : 0);
   const grouped = SECTIONS.reduce((acc, s) => {
     const items = pantry
-      .filter(i => sectionFor(i) === s)
+      .filter(i => sectionFor(i) === s && (!q || i.name.toLowerCase().includes(q)))
       .sort((a, b) => rank(a) - rank(b));
     if (items.length) acc[s] = items;
     return acc;
@@ -191,7 +197,7 @@ Return ONLY a valid JSON array, no markdown fences:
 
   // Staples that are stocked and not flagged fold into a collapsed "📌 N staples" row;
   // out, use-soon, or mid-edit staples stay in the main list so they get noticed.
-  const isFolded = item => isStaple(item) && !isOut(item) && !item.useSoon && editingId !== item.id;
+  const isFolded = item => !q && isStaple(item) && !isOut(item) && !item.useSoon && editingId !== item.id;
 
   const renderItem = item =>
     h("div", { key: item.id, style: { display: "flex", flexWrap: editingId === item.id ? "wrap" : undefined, alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid #F0E6D3" } },
@@ -259,6 +265,8 @@ Return ONLY a valid JSON array, no markdown fences:
         title: "Remove item",
       }, "×"),
     );
+
+  const anyExpanded = Object.keys(grouped).some(s => expanded.includes(s));
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return h("div", null,
@@ -375,15 +383,30 @@ Return ONLY a valid JSON array, no markdown fences:
     ),
 
     // ── Grouped inventory ─────────────────────────────────────────────────────
+    pantry.length > 0 && h("div", { className: "flex gap-8", style: { alignItems: "center", marginBottom: 6 } },
+      h("input", {
+        className: "form-input-sm",
+        style: { flex: 1 },
+        type: "search",
+        value: query,
+        onChange: e => setQuery(e.target.value),
+        placeholder: "🔍 Search pantry…",
+      }),
+      !q && h("button", {
+        className: "pantry-expand-all",
+        onClick: () => setExpanded(anyExpanded ? [] : Object.keys(grouped)),
+      }, anyExpanded ? "Collapse all" : "Expand all"),
+    ),
+    q && !Object.keys(grouped).length && h("div", { className: "muted text-sm", style: { padding: "8px 4px" } }, `Nothing in the pantry matches "${query.trim()}".`),
     Object.entries(grouped).map(([section, items]) => {
-      const isCollapsed = collapsed.includes(section);
+      const isCollapsed = !q && !expanded.includes(section); // searching opens every matching section
       const shown  = items.filter(i => !isFolded(i));
       const folded = items.filter(isFolded);
       const outCount = items.filter(isOut).length;
       return h("div", { key: section, style: { marginBottom: 14 } },
         h("button", {
           className: "grocery-section-label pantry-section-toggle",
-          onClick: () => toggleIn(setCollapsed, section),
+          onClick: () => toggleIn(setExpanded, section),
           "aria-expanded": !isCollapsed,
         },
           h("span", { className: "pantry-chevron" }, isCollapsed ? "▸" : "▾"),

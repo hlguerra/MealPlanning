@@ -58,18 +58,35 @@ const pickWithProteinCap = (ordered, need, cap, picked = []) => {
   return out;
 };
 
-// This week's batch: recipes not made in 30 days and not in last week's batch first
-// `keep` are recipes already in the batch that stay put (see cleanWeek)
-const pickWeeklyRecipes = (recipes, cookHistory, prevIds, seed, keep = []) => {
-  const recentNames = new Set((cookHistory || [])
-    .filter(e => Date.now() - e.madeAt < 30 * DAY_MS)
-    .flatMap(e => (e.recipeName || "").split(" + ")));
+// When an entry was cooked: the "made on" date picked when marking it, else when it was logged
+const madeTime = e => (e.date && Date.parse(`${e.date}T12:00`)) || e.madeAt || 0;
+
+// Recipe ids/names cooked in the 30 days before `before` (a timestamp)
+const recentlyMadeBefore = (recipes, cookHistory, before) => {
+  const inWindow = t => t && t < before && before - t < 30 * DAY_MS;
+  const ids = new Set(), names = new Set();
+  (cookHistory || []).filter(e => inWindow(madeTime(e))).forEach(e => {
+    (e.recipeIds || [e.recipeId]).filter(Boolean).forEach(id => ids.add(id));
+    (e.recipeName || "").split(" + ").forEach(n => names.add(n.toLowerCase()));
+  });
+  recipes.forEach(r => { if (inWindow(r.lastMadeAt)) ids.add(r.id); });
+  return r => ids.has(r.id) || names.has((r.name || "").toLowerCase());
+};
+
+// Start of the week as a timestamp — "recent" is measured from here, so a pick
+// you cook mid-week stays in the batch (with its votes) until next week.
+const weekStart = weekKey => Date.parse(`${weekKey}T00:00`);
+
+// This week's batch: never a recipe made in the 30 days before the week started.
+// Ones in last week's batch go last. `keep` are recipes already in the batch that stay put (see cleanWeek).
+// If the library runs short the batch has fewer than 20 rather than repeating recent meals.
+const pickWeeklyRecipes = (recipes, cookHistory, prevIds, seed, keep = [], weekKey = weekKeyFor()) => {
+  const isRecent = recentlyMadeBefore(recipes, cookHistory, weekStart(weekKey));
   const prev = new Set(prevIds || []);
-  const isStale = r => recentNames.has(r.name) || prev.has(r.id);
-  const pool = recipes.filter(isMainCourse);
+  const pool = recipes.filter(r => isMainCourse(r) && !isRecent(r));
   const ordered = [
-    ...seededShuffle(pool.filter(r => !isStale(r)), seed),
-    ...seededShuffle(pool.filter(isStale), seed),
+    ...seededShuffle(pool.filter(r => !prev.has(r.id)), seed),
+    ...seededShuffle(pool.filter(r => prev.has(r.id)), seed),
   ];
   return pickWithProteinCap(ordered, WEEKLY_COUNT, WEEKLY_PROTEIN_CAP, keep).map(r => r.id);
 };
@@ -79,21 +96,23 @@ const newWeek = (current, weekKey, recipes, cookHistory, householdId) => {
   const prevRecipeIds = current?.recipeIds || [];
   return {
     weekKey,
-    recipeIds: pickWeeklyRecipes(recipes, cookHistory, prevRecipeIds, `${householdId || ""}:${weekKey}`),
+    recipeIds: pickWeeklyRecipes(recipes, cookHistory, prevRecipeIds, `${householdId || ""}:${weekKey}`, [], weekKey),
     prevRecipeIds,
     votes: {},
   };
 };
 
-// A batch picked before the main-courses-only rule may hold sides etc. Drop
-// those and top up with mains, keeping the mains already there and their votes.
+// Drop anything that no longer belongs in the batch — not a main course (e.g. its
+// course was changed to Side), or made in the 30 days before the week started
+// (batches picked before that rule) — and top up, keeping the rest and their votes.
 // Returns null if the batch is already clean.
 const cleanWeek = (current, recipes, cookHistory, householdId) => {
+  const isRecent = recentlyMadeBefore(recipes, cookHistory, weekStart(current.weekKey));
   const batch = (current?.recipeIds || []).map(id => recipes.find(r => r.id === id)).filter(Boolean);
-  const keep = batch.filter(isMainCourse);
+  const keep = batch.filter(r => isMainCourse(r) && !isRecent(r));
   if (keep.length === batch.length) return null;
   const recipeIds = pickWeeklyRecipes(recipes, cookHistory, current.prevRecipeIds,
-    `${householdId || ""}:${current.weekKey}`, keep);
+    `${householdId || ""}:${current.weekKey}`, keep, current.weekKey);
   const votes = Object.fromEntries(Object.entries(current.votes || {}).filter(([id]) => recipeIds.includes(id)));
   return { ...current, recipeIds, votes };
 };

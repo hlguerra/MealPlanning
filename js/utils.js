@@ -645,6 +645,26 @@ Recipes: ${JSON.stringify(summary)}`,
   // ── API call wrapper ─────────────────────────────────────────────────────────
   // Centralised fetch to the Anthropic messages endpoint.
   // Returns parsed JSON or throws.
+  // Downloads a recipe page through our server (Claude can't open links itself).
+  // Returns { url, title, jsonLd, text } — jsonLd is the page's schema.org Recipe if it has one.
+  async fetchRecipePage(url) {
+    const householdId = window.APP.currentHouseholdId;
+    if (!householdId) throw new Error("AI features need a household — set one up under Settings → Sync & Household.");
+    const token = await window.APP.firebase.getIdToken();
+    const res = await fetch(window.APP.FETCH_PAGE_URL, {
+      method:  "POST",
+      headers: {
+        "Content-Type":   "application/json",
+        "Authorization":  `Bearer ${token}`,
+        "X-Household-Id": householdId,
+      },
+      body: JSON.stringify({ url }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `Page fetch error ${res.status}`);
+    return data;
+  },
+
   async callClaude({ messages, maxTokens = 1500, tools }) {
     const body = {
       model:      window.APP.API_MODEL,

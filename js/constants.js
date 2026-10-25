@@ -228,5 +228,6 @@ window.APP.FLYER_LINKS = [
 
 // ── Anthropic API ─────────────────────────────────────────────────────────────
 window.APP.API_URL       = "https://us-central1-meal-planner-5df26.cloudfunctions.net/anthropicProxy";
+window.APP.FETCH_PAGE_URL = "https://us-central1-meal-planner-5df26.cloudfunctions.net/fetchRecipePage";
 window.APP.API_MODEL     = "claude-sonnet-4-6";
 window.APP.API_MAX_TOKENS = 1500;

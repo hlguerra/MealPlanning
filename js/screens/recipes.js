@@ -24,6 +24,7 @@ window.APP.RecipesScreen = function({ recipes, setRecipes, onAddToMealPlan, onAd
   const [importUrl,     setImportUrl]     = useState("");
   const [importLoading, setImportLoading] = useState(false);
   const [importError,   setImportError]   = useState("");
+  const [importText,    setImportText]    = useState(""); // pasted recipe text — fallback for sites that block downloads
   const photoInputRef = useRef(null);
   const [photoLoading, setPhotoLoading] = useState(false);
   const [photoError,   setPhotoError]   = useState("");
@@ -104,31 +105,76 @@ window.APP.RecipesScreen = function({ recipes, setRecipes, onAddToMealPlan, onAd
     setView("list");
   };
 
+  // ── Imported recipe → editor ───────────────────────────────────────────────
+  // Clean up Claude's output so it can't put invalid values in the editor
+  const toEditorRecipe = (p, extra = {}) => ({
+    id: uid(),
+    name: p.name || "",
+    course: COURSES.includes(p.course) ? p.course : "Main",
+    proteins:   (p.proteins   || []).filter(x => PROTEINS.includes(x)),
+    mealTypes:  (p.mealTypes  || []).filter(x => MEAL_TYPES.includes(x)),
+    appliances: (p.appliances || []).filter(x => APPLIANCES.includes(x)),
+    tags: [...new Set((p.tags || []).map(t => String(t).trim()).filter(Boolean))].slice(0, 4),
+    servings: +p.servings || 4,
+    prepTime: +p.prepTime || 0,
+    cookTime: +p.cookTime || 0,
+    estimatedCost: +p.estimatedCost || 0,
+    ingredients: window.APP.utils.cleanIngredients(p.ingredients, ingredients),
+    steps: (p.steps || []).length ? p.steps : [""],
+    notes: p.notes || "",
+    photo: "", nutrition: {},
+    ...extra,
+  });
+
   // ── URL import ─────────────────────────────────────────────────────────────
+  // Our server downloads the page (Claude can't open links), then Claude turns
+  // the recipe data or page text into our format.
+  // Some sites block automated downloads; pasted text skips the download.
   const importFromUrl = async () => {
-    if (!importUrl.trim()) return;
+    const url = importUrl.trim();
+    const pasted = importText.trim();
+    if (!url && !pasted) return;
     setImportLoading(true); setImportError("");
     try {
+      const fullUrl = !url || /^https?:\/\//i.test(url) ? url : `https://${url}`;
+      const page = pasted
+        ? { url: fullUrl, title: "", jsonLd: null, text: pasted.slice(0, 30000) }
+        : await window.APP.utils.fetchRecipePage(fullUrl);
+      if (!page.jsonLd && !(page.text || "").trim()) throw new Error("The page had no readable recipe.");
+      const source = page.jsonLd
+        ? `Recipe data from the page (schema.org JSON-LD):\n${JSON.stringify(page.jsonLd).slice(0, 30000)}`
+        : `Text of the page:\n${page.text}`;
       const data = await callClaude({
-        maxTokens: 1000,
+        maxTokens: 3000,
         messages: [{
           role: "user",
-          content: `Extract the recipe from this URL. Return ONLY valid JSON, no markdown:
-{"name":"","course":"Main","proteins":[],"tags":[],"appliances":[],"servings":4,"prepTime":0,"cookTime":0,"ingredients":[{"name":"","amount":1,"unit":"","description":"","section":"Other"}],"steps":[],"notes":"","estimatedCost":0}
+          content: `Below is a recipe web page${page.title ? ` titled "${page.title}"` : ""}. Extract the recipe. Return ONLY valid JSON, no markdown:
+{"name":"","course":"Main","proteins":[],"mealTypes":[],"tags":[],"appliances":[],"servings":4,"prepTime":0,"cookTime":0,"ingredients":[{"name":"","amount":1,"unit":"","description":"","section":"Other"}],"steps":[],"notes":"","estimatedCost":0}
 ${window.APP.utils.recipeFormatRules()} Put prep words (e.g. "diced") in "description", not "name".
-URL: ${importUrl.trim()}`,
+Copy what is on the page — do NOT invent ingredients, quantities, or steps. "steps": one string per step, no step numbers. "prepTime"/"cookTime" in minutes.
+"course": one of [${COURSES.join(", ")}]. "proteins": zero or more of [${PROTEINS.join(", ")}]. "mealTypes": zero or more of [${MEAL_TYPES.join(", ")}]. "appliances": zero or more of [${APPLIANCES.join(", ")}], only ones the recipe uses.
+"tags": 0-4 short tags. Prefer these existing tags when they fit: ${JSON.stringify(allTags)}.
+"estimatedCost": rough USD estimate for the whole recipe at typical Ohio grocery prices.
+
+${source}`,
         }],
       });
-      const text   = extractText(data.content);
-      const parsed = parseJSON(text);
-      parsed.ingredients = window.APP.utils.cleanIngredients(parsed.ingredients, ingredients);
-      setActive({ ...parsed, id: uid(), photo: "", nutrition: {} });
+      const parsed = parseJSON(extractText(data.content));
+      if (!parsed?.name && !(parsed?.ingredients || []).length) throw new Error("No recipe found on that page.");
+      let sourceLabel = "";
+      try { sourceLabel = new URL(page.url).hostname.replace(/^www\./, ""); } catch { /* keep blank */ }
+      // The page's own photo, when its recipe data has one (string, list, or { url })
+      const img = [].concat(page.jsonLd?.image || [])[0];
+      const photo = typeof img === "string" ? img : img?.url || "";
+      setActive(toEditorRecipe(parsed, { sourceUrl: page.url, sourceLabel, photo: /^https:\/\//.test(photo) ? photo : "" }));
       addCost("recipeImport");
       setImporting(false);
       setImportUrl("");
+      setImportText("");
       setView("edit");
-    } catch {
-      setImportError("Could not extract recipe. Try a different URL or add manually.");
+    } catch (err) {
+      console.error("URL import failed:", err);
+      setImportError(`Could not import that recipe (${err?.message || "unknown error"}). Try a different URL or add it manually.`);
     }
     setImportLoading(false);
   };
@@ -147,26 +193,7 @@ URL: ${importUrl.trim()}`,
       const p = await scanRecipePhotos(images, allTags);
       addCost("recipePhotoScan");
 
-      // Clean up Claude's output so it can't put invalid values in the editor
-      const linked = window.APP.utils.cleanIngredients(p.ingredients, ingredients);
-
-      setActive({
-        id: uid(),
-        name: p.name || "",
-        course: COURSES.includes(p.course) ? p.course : "Main",
-        proteins:   (p.proteins   || []).filter(x => PROTEINS.includes(x)),
-        mealTypes:  (p.mealTypes  || []).filter(x => MEAL_TYPES.includes(x)),
-        appliances: (p.appliances || []).filter(x => APPLIANCES.includes(x)),
-        tags: [...new Set((p.tags || []).map(t => String(t).trim()).filter(Boolean))].slice(0, 4),
-        servings: +p.servings || 4,
-        prepTime: +p.prepTime || 0,
-        cookTime: +p.cookTime || 0,
-        estimatedCost: +p.estimatedCost || 0,
-        ingredients: linked,
-        steps: (p.steps || []).length ? p.steps : [""],
-        notes: p.notes || "",
-        photo: "", nutrition: {},
-      });
+      setActive(toEditorRecipe(p));
       setView("edit");
     } catch (err) {
       console.error("Photo scan failed:", err);
@@ -217,7 +244,11 @@ URL: ${importUrl.trim()}`,
         h("input", { className: "form-input", style: { flex: 1 }, value: importUrl, onChange: e => setImportUrl(e.target.value), placeholder: "https://www.budgetbytes.com/…" }),
         h(Btn, { label: importLoading ? "…" : "Import", onClick: importFromUrl, disabled: importLoading }),
       ),
-      importError && h("div", { className: "warn text-sm" }, importError),
+      importError && h("div", { className: "warn text-sm", style: { marginBottom: 8 } }, importError),
+      (importError || importText) && h("div", null,
+        h("div", { className: "muted text-xs", style: { marginBottom: 4 } }, "Some sites block downloads. Copy the recipe from the page, paste it here, and tap Import:"),
+        h("textarea", { className: "form-textarea", rows: 6, style: { width: "100%" }, value: importText, onChange: e => setImportText(e.target.value), placeholder: "Paste ingredients and instructions…" }),
+      ),
     ),
 
     // Search + filters
@@ -646,10 +677,11 @@ window.APP.TagAuditModal = function({ tag, recipes, setRecipes, addCost, showBan
 
 // ── MealTypePickerModal ───────────────────────────────────────────────────────
 // Shown every time a recipe is added to the meal plan, so you always choose which
-// slot (Breakfast/Lunch/Dinner) it goes into — recipes can carry more than one
-// meal type, and the app has no reliable way to guess which one you mean.
+// slot (Breakfast/Lunch/Dinner) it goes into. Every slot is offered — a recipe's
+// meal-type tags are for filtering and the generator, not a limit on where it goes.
+// Tagged slots are highlighted.
 function MealTypePickerModal({ recipe, onPick, onClose }) {
-  const options = recipe.mealTypes?.length ? recipe.mealTypes : MEAL_TYPES;
+  const tagged = recipe.mealTypes || [];
   return h("div", {
     style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 200, display: "flex", alignItems: "flex-end" },
     onClick: onClose,
@@ -663,10 +695,10 @@ function MealTypePickerModal({ recipe, onPick, onClose }) {
         h("button", { onClick: onClose, style: { background: "none", border: "none", fontSize: 24, cursor: "pointer", color: "#7A6A55" } }, "×"),
       ),
       h("div", { className: "flex gap-8" },
-        options.map(t => h("button", {
+        MEAL_TYPES.map(t => h("button", {
           key: t,
           onClick: () => onPick(t),
-          className: "meal-type-btn",
+          className: `meal-type-btn ${tagged.includes(t) ? "active" : ""}`,
           style: { flex: 1 },
         },
           h("span", { className: "meal-type-icon" }, MEAL_ICONS[t]),

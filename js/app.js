@@ -114,8 +114,8 @@ function App() {
     setWeeklyVotes(cur => cur?.weekKey === weekKey ? cur : window.APP.voting.newWeek(cur, weekKey, recipes, cookHistory, settings.householdId));
   }, [weekKey, weeklyVotes?.weekKey, recipes.length, syncLoaded]); // eslint-disable-line
 
-  // Swap any non-main-course recipes out of this week's batch (e.g. a recipe's
-  // course was changed to Side after it was picked). Votes on mains are kept.
+  // Swap out anything that doesn't belong in this week's batch (a recipe changed to
+  // Side, or one made in the 30 days before the week started). Other votes are kept.
   useEffect(() => {
     if (weeklyVotes?.weekKey !== weekKey || !recipes.length) return;
     if (settings.householdId && !syncLoaded) return;
@@ -470,6 +470,7 @@ function App() {
       onMarkAsMade:   markAsMade,
       onUndoMarkAsMade: undoMarkAsMade,
       onAddRecipeToMeal: addRecipeToMeal,
+      onAddToMealPlan: addToMealPlan,
       pantry,
       requestPin,
       settings,

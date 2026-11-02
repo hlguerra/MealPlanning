@@ -63,19 +63,6 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
     mealTypes.map(t => t === "Breakfast" ? "Breakfast" : t === "Lunch" ? ["Main", "Side", "Appetizer"] : ["Main", "Side"]).flat()
   );
 
-  // "Haven't made in a while": saved recipes you've cooked before, but not in the
-  // last 30 days, longest-ago first. Last-made comes from the recipe or cook history.
-  const lastMadeOf = r => Math.max(r.lastMadeAt || 0, ...(cookHistory || [])
-    .filter(e => (e.recipeIds || []).includes(r.id) || (e.recipeName || "").toLowerCase().split(" + ").includes(r.name.toLowerCase()))
-    .map(e => e.madeAt || 0));
-  const plannedIds = new Set(mealPlan.filter(m => !m.checked).flatMap(m => m.recipeIds || []));
-  const notMadeInAWhile = recipes
-    .filter(r => !r.hidden && (r.course === "Main" || r.course === "Breakfast") && !plannedIds.has(r.id))
-    .map(r => ({ recipe: r, lastMade: lastMadeOf(r) }))
-    .filter(x => x.lastMade && Date.now() - x.lastMade >= 30 * 24 * 60 * 60 * 1000)
-    .sort((a, b) => a.lastMade - b.lastMade)
-    .slice(0, 5);
-
   // ── This Week's Picks ───────────────────────────────────────────────────────
   const { voting } = window.APP;
   const voters = voting.votersFrom(settings);
@@ -320,40 +307,9 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
       ),
     ),
 
-    // ── Haven't Made in a While ──────────────────────────────────────────────
-    notMadeInAWhile.length > 0 && h(Card, { style: { marginBottom: 16, background: "#FFF8F0" } },
-      h("div", { className: "font-bold font-serif mb-8", style: { fontSize: 14 } }, "💡 Haven't Made in a While"),
-      h("div", { className: "muted text-xs", style: { marginBottom: 4 } }, "Saved meals you haven’t cooked in 30+ days. Tap a meal slot to add one to the plan:"),
-      notMadeInAWhile.map(({ recipe: r, lastMade }) =>
-        h("div", { key: r.id, className: "flex-center gap-8 divider", style: { padding: "6px 0" } },
-          h("div", { style: { flex: 1, minWidth: 0 } },
-            h("div", { className: "font-bold", style: { fontSize: 13 } }, r.name),
-            h("div", { className: "muted text-xs" }, `Last made ${new Date(lastMade).toLocaleDateString("en-US", { month: "short", day: "numeric", year: new Date(lastMade).getFullYear() === new Date().getFullYear() ? undefined : "numeric" })}`),
-          ),
-          MEAL_TYPES.map(t => h("button", {
-            key: t,
-            title: `Add as ${t}`,
-            onClick: () => { onAddToMealPlan(r, t); showBanner(`✓ ${r.name} added to ${t}`, "success"); },
-            style: { background: "none", border: `1.5px solid ${(r.mealTypes || []).includes(t) ? "#D4622A" : "#F0E6D3"}`, borderRadius: 8, padding: "3px 6px", fontSize: 14, cursor: "pointer", flexShrink: 0 },
-          }, MEAL_ICONS[t])),
-        )
-      ),
-    ),
-
-    // ── This Week's Picks ────────────────────────────────────────────────────
-    weekly && h(Card, { style: { marginBottom: 16, cursor: "pointer" }, onClick: () => onNav("vote") },
-      h("div", { className: "flex-between" },
-        h("div", null,
-          h("div", { className: "font-bold font-serif", style: { fontSize: 15 } }, "🗳 This Week's Picks"),
-          h("div", { className: "muted text-sm" }, `Vote on ${weekly.recipeIds.length} recipes · ${progressText}`),
-        ),
-        h("span", { style: { color: "#D4622A", fontSize: 20, fontWeight: 700 } }, "→"),
-      ),
-    ),
-
     // ── Generator ────────────────────────────────────────────────────────────
     h(Card, { style: { marginBottom: 20 } },
-      h("div", { className: "font-bold font-serif mb-12", style: { fontSize: 15 } }, "✨ Meal Plan Generator"),
+      h(window.APP.CollapsibleSection, { title: "✨ Meal Plan Generator" },
 
       h("div", { style: { marginBottom: 14 } },
         h("div", { className: "form-label" }, "Generate From"),
@@ -398,7 +354,7 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
               className: `meal-type-btn ${on ? "active" : ""}`,
               onClick: () => toggleMealType(t),
             },
-              h("span", { className: "meal-type-icon" }, MEAL_ICONS[t]),
+              h("span", { className: "meal-type-icon" }, h(window.APP.MealIcon, { type: t, size: 22 })),
               t,
             );
           }),
@@ -446,6 +402,7 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
         className: "btn-full",
       }),
       genError && h("div", { className: "warn text-sm mt-8" }, genError),
+      ),
     ),
 
     // ── Proposed plan ─────────────────────────────────────────────────────────
@@ -470,7 +427,7 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
 
       Object.entries(groupByType(proposed)).map(([type, meals]) =>
         h("div", { key: type, style: { marginBottom: 12 } },
-          h("div", { className: "grocery-section-label" }, `${MEAL_ICONS[type]} ${type}`),
+          h("div", { className: "grocery-section-label flex-center gap-6" }, h(window.APP.MealIcon, { type, size: 14 }), type),
           meals.map(m =>
             h("div", { key: m.id, className: "flex-center gap-10 divider", style: { padding: "10px 0" } },
               h("button", {
@@ -584,7 +541,7 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
 
       Object.entries(groupByType(mealPlan)).map(([type, meals]) =>
         h("div", { key: type, style: { marginBottom: 14 } },
-          h("div", { className: "grocery-section-label" }, `${MEAL_ICONS[type]} ${type}`),
+          h("div", { className: "grocery-section-label flex-center gap-6" }, h(window.APP.MealIcon, { type, size: 14 }), type),
           meals.map(m =>
             h(Card, { key: m.id, className: "card-compact", style: { marginBottom: 8, opacity: m.checked ? 0.6 : 1 } },
               h("div", { className: "flex-between" },
@@ -617,7 +574,7 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
                       onChange: e => setMealPlan(mp => mp.map(x => x.id === m.id ? { ...x, mealType: e.target.value } : x)),
                       title: "Move to another meal",
                       style: { marginLeft: 6, padding: "2px 4px", borderRadius: 6, border: "1.5px solid #F0E6D3", background: "#FFF8F0", color: "#7A6A55", fontSize: 12, fontFamily: "'DM Sans',sans-serif" },
-                    }, MEAL_TYPES.map(t => h("option", { key: t, value: t }, `${MEAL_ICONS[t]} ${t}`))),
+                    }, MEAL_TYPES.map(t => h("option", { key: t, value: t }, t))),
                   ),
                 ),
                 h("button", {

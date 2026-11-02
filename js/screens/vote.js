@@ -44,7 +44,7 @@ window.APP.VoteScreen = function({ weeklyVotes, setWeeklyVotes, recipes, setting
   return h("div", null,
     h(SectionHeader, {
       title: "This Week's Picks",
-      action: h(Btn, { label: "← Meal Plan", variant: "ghost", onClick: () => onNav("plan"), className: "btn-sm" }),
+      action: h(Btn, { label: "← Home", variant: "ghost", onClick: () => onNav("home"), className: "btn-sm" }),
     }),
     weekLabel && h("div", { className: "muted text-sm", style: { marginTop: -8, marginBottom: 14 } }, `Week of ${weekLabel}`),
 
@@ -87,7 +87,7 @@ window.APP.VoteScreen = function({ weeklyVotes, setWeeklyVotes, recipes, setting
         return h(Card, { key: r.id, className: "card-compact", style: { marginBottom: 10 } },
           h("div", { className: "flex-center gap-10" },
             r.photo
-              ? h("img", { src: r.photo, alt: "", className: "vote-photo" })
+              ? h("img", { src: r.photo, alt: "", className: "vote-photo", loading: "lazy", decoding: "async" })
               : h("div", { className: "vote-photo vote-photo-empty" }, "🍴"),
             h("div", { style: { flex: 1, minWidth: 0, cursor: "pointer" }, onClick: () => setOpenId(id => id === r.id ? null : r.id) },
               h("div", { className: "font-bold", style: { fontSize: 15 } },

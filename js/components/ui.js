@@ -255,6 +255,23 @@ window.APP.ModeToggle = function({ value, onChange, options }) {
   );
 };
 
+// ── MealIcon ──────────────────────────────────────────────────────────────────
+// Outline icons for meal types (sunrise / sun / moon). Drawn in currentColor,
+// so they pick up the surrounding text color (e.g. orange on an active button).
+const MEAL_ICON_PATHS = {
+  Breakfast: ["M3 18h18", "M7 18a5 5 0 0 1 10 0", "M12 6v3", "M5.6 10.6 7 12", "M18.4 10.6 17 12", "M2 14.5h2", "M20 14.5h2", "M9 21h6"],
+  Lunch:     ["M12 8a4 4 0 1 0 0 8a4 4 0 1 0 0-8z", "M12 2v2", "M12 20v2", "M2 12h2", "M20 12h2", "M4.9 4.9l1.4 1.4", "M17.7 17.7l1.4 1.4", "M4.9 19.1l1.4-1.4", "M17.7 6.3l1.4-1.4"],
+  Dinner:    ["M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"],
+};
+window.APP.MealIcon = function({ type, size = 18, style = {} }) {
+  const paths = MEAL_ICON_PATHS[type] || MEAL_ICON_PATHS.Dinner;
+  return h("svg", {
+    width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor",
+    strokeWidth: 1.75, strokeLinecap: "round", strokeLinejoin: "round", "aria-label": type, role: "img",
+    style: { display: "inline-block", verticalAlign: "-0.2em", flexShrink: 0, ...style },
+  }, paths.map((d, i) => h("path", { key: i, d })));
+};
+
 // ── CollapsibleSection ────────────────────────────────────────────────────────
 window.APP.CollapsibleSection = function({ title, children, defaultOpen = false }) {
   const [open, setOpen] = useState(defaultOpen);

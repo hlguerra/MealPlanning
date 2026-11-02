@@ -6,8 +6,14 @@ const { fmt$, callClaude, extractText, parseJSON, uid } = window.APP.utils;
 const { categorize } = window.APP;
 
 // ── HomeScreen ────────────────────────────────────────────────────────────────
-window.APP.HomeScreen = function({ settings, mealPlan, groceryList, onNav, onQuickAdd, addCost, showBanner, onSync, priceSearchResults, setPriceSearchResults }) {
+window.APP.HomeScreen = function({ settings, mealPlan, groceryList, onNav, onQuickAdd, addCost, showBanner, onSync, priceSearchResults, setPriceSearchResults, weeklyVotes }) {
   const pending = groceryList.filter(i => !i.checked).length;
+
+  // This week's picks — shown only once the week's 20 picks exist
+  const { voting } = window.APP;
+  const voters = voting.votersFrom(settings);
+  const weekly = weeklyVotes?.weekKey === voting.weekKeyFor() && weeklyVotes.recipeIds?.length ? weeklyVotes : null;
+  const progressText = voting.voteProgress(weekly, voters).map(p => `${p.name} ${p.count === p.total ? "✓" : `${p.count}/${p.total}`}`).join(" · ");
 
   return h("div", null,
     // Hero
@@ -31,6 +37,17 @@ window.APP.HomeScreen = function({ settings, mealPlan, groceryList, onNav, onQui
       StatCard({ label: "To Buy",        value: pending,         icon: "🛒", color: "#2A7D4F", onClick: () => onNav("grocery") }),
     ),
 
+    // This Week's Picks
+    weekly && h(Card, { style: { marginBottom: 20, cursor: "pointer" }, onClick: () => onNav("vote") },
+      h("div", { className: "flex-between" },
+        h("div", null,
+          h("div", { className: "font-bold font-serif", style: { fontSize: 16 } }, "🗳 This Week's Picks"),
+          h("div", { className: "muted text-sm" }, `Vote on ${weekly.recipeIds.length} recipes · ${progressText}`),
+        ),
+        h("span", { style: { color: "#D4622A", fontSize: 20, fontWeight: 700 } }, "→"),
+      ),
+    ),
+
     // Quick add
     h(Card, { style: { marginBottom: 20 } },
       h("div", { className: "font-bold font-serif mb-12", style: { fontSize: 16 } }, "🛒 Quick Add to Grocery List"),
@@ -42,7 +59,7 @@ window.APP.HomeScreen = function({ settings, mealPlan, groceryList, onNav, onQui
       h("div", { className: "font-bold font-serif mb-12", style: { fontSize: 16 } }, "🗓 Current Meal Plan"),
       mealPlan.slice(0, 7).map(m =>
         h("div", { key: m.id, style: { display: "flex", alignItems: "center", gap: 10, padding: "7px 0", borderBottom: "1px solid #F0E6D3", opacity: m.checked ? 0.5 : 1 } },
-          h("span", { style: { fontSize: 16 } }, window.APP.MEAL_ICONS[m.mealType] || "🍴"),
+          h("span", { style: { color: "#7A6A55", display: "flex" } }, h(window.APP.MealIcon, { type: m.mealType || "Dinner", size: 18 })),
           h("div", { style: { flex: 1 } },
             h("div", {
               className: "font-bold",

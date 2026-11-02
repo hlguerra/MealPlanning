@@ -695,7 +695,7 @@ img {
   color: #D4622A;
 }
 
-.meal-type-icon { font-size: 20px; margin-bottom: 2px; display: block; }
+.meal-type-icon { margin-bottom: 4px; display: block; line-height: 0; }
 
 /* ── Appliance checklist ──────────────────────────────────────────────────── */
 .appliance-row {

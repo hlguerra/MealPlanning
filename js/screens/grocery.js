@@ -41,7 +41,7 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
       const scan   = await scanReceipt(images);
       addCost("receiptScan");
       setReceiptItems((scan.items || []).map(it => ({
-        id: window.APP.utils.uid(), name: it.name || "", ingredientId: null,
+        id: window.APP.utils.uid(), name: it.name || "", rawName: it.name || "", ingredientId: null,
         amount: it.amount || 1, unit: it.unit || "count", price: it.price || 0,
       })));
 
@@ -243,24 +243,30 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
         value: receiptStore, onChange: e => setReceiptStore(e.target.value), placeholder: "Store name",
       }),
       receiptItems.map(it =>
-        h("div", { key: it.id, style: { display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", padding: "6px 0", borderBottom: "1px solid #F0E6D3" } },
-          h(window.APP.IngredientSelect, {
+        h("div", { key: it.id, style: { padding: "8px 0", borderBottom: "1px solid #F0E6D3" } },
+          // Item as printed on the receipt, in full, so you can tell what to link it to
+          h("div", { className: "flex-center gap-8", style: { marginBottom: 6 } },
+            h("div", { className: "font-bold", style: { flex: 1, minWidth: 0, fontSize: 13, wordBreak: "break-word" } }, it.rawName || it.name || "(unnamed item)"),
+            h("button", { onClick: () => removeReceiptItem(it.id), style: { background: "none", border: "none", cursor: "pointer", color: "#C0392B", fontSize: 16, flexShrink: 0 } }, "×"),
+          ),
+          h("div", { style: { marginBottom: 6 } }, h(window.APP.IngredientSelect, {
             ingredients: ingredients || [],
             selectedId: it.ingredientId,
             onSelect: sel => updReceiptItem(it.id, { ingredientId: sel.id, name: sel.name }),
             onAddNew: name => addNewIngredient(name),
             flagged: !it.ingredientId,
-            placeholder: it.name || "Search ingredient…",
-          }),
-          h("input", { className: "form-input-sm", style: { width: 50 }, type: "number", value: it.amount, onChange: e => updReceiptItem(it.id, { amount: e.target.value }), placeholder: "Amt" }),
+            placeholder: "Link to ingredient…",
+          })),
+          h("div", { className: "flex gap-6", style: { alignItems: "center" } },
+          h("input", { className: "form-input-sm", style: { width: 60 }, type: "number", value: it.amount, onChange: e => updReceiptItem(it.id, { amount: e.target.value }), placeholder: "Amt" }),
           h("select", {
             className: "form-input-sm", style: { width: 68 },
             value: it.unit, onChange: e => updReceiptItem(it.id, { unit: e.target.value }),
           },
             UNITS.map(u => h("option", { key: u, value: u }, u)),
           ),
-          h("input", { className: "form-input-sm", style: { width: 60 }, type: "number", step: "0.01", value: it.price, onChange: e => updReceiptItem(it.id, { price: e.target.value }), placeholder: "$" }),
-          h("button", { onClick: () => removeReceiptItem(it.id), style: { background: "none", border: "none", cursor: "pointer", color: "#C0392B", fontSize: 16 } }, "×"),
+          h("input", { className: "form-input-sm", style: { width: 70 }, type: "number", step: "0.01", value: it.price, onChange: e => updReceiptItem(it.id, { price: e.target.value }), placeholder: "$" }),
+          ),
         )
       ),
       h("div", { className: "flex gap-8", style: { marginTop: 12 } },

@@ -747,4 +747,38 @@ Recipes: ${JSON.stringify(summary)}`,
     return n === 1 ? word : `${word}s`;
   },
 
+  // ── Recipes → CSV ─────────────────────────────────────────────────────────────
+  // One row per recipe. Ingredients and steps are kept in one cell each,
+  // one per line, so the file opens cleanly in Excel / Google Sheets.
+  recipesToCsv(recipes = []) {
+    const cell = v => {
+      const s = v === undefined || v === null ? "" : String(v);
+      return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const list = a => (a || []).join(", ");
+    const date = ts => ts ? new Date(ts).toLocaleDateString("en-CA") : ""; // YYYY-MM-DD, local
+    const ingLine = i => [window.APP.utils.fmtIngredient(i.amount, i.unit), i.name, i.description ? `(${i.description})` : ""].filter(Boolean).join(" ");
+    const cols = [
+      ["Name",           r => r.name],
+      ["Course",         r => r.course],
+      ["Meal Types",     r => list(r.mealTypes)],
+      ["Proteins",       r => list(r.proteins)],
+      ["Appliances",     r => list(r.appliances)],
+      ["Tags",           r => list(r.tags)],
+      ["Servings",       r => r.servings],
+      ["Prep (min)",     r => r.prepTime || ""],
+      ["Cook (min)",     r => r.cookTime || ""],
+      ["Est. Cost",      r => r.estimatedCost ? Number(r.estimatedCost).toFixed(2) : ""],
+      ["Ingredients",    r => (r.ingredients || []).map(ingLine).join("\n")],
+      ["Steps",          r => (r.steps || []).filter(s => s && s.trim()).map((s, i) => `${i + 1}. ${s.trim()}`).join("\n")],
+      ["Notes",          r => r.notes],
+      ["Source",         r => r.sourceUrl || r.sourceLabel],
+      ["Last Made",      r => date(r.lastMadeAt)],
+      ["Hidden",         r => r.hidden ? "yes" : ""],
+    ];
+    const rows = [cols.map(c => c[0]), ...recipes.map(r => cols.map(c => c[1](r)))];
+    // BOM so Excel reads emoji / accents as UTF-8
+    return "\uFEFF" + rows.map(row => row.map(cell).join(",")).join("\r\n");
+  },
+
 };

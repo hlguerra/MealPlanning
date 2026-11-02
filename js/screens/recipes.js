@@ -7,7 +7,7 @@ const { categorize } = window.APP;
 const { COURSES, PROTEINS, APPLIANCES, SECTIONS, MEAL_TYPES, MEAL_ICONS } = window.APP;
 
 // ── RecipesScreen ─────────────────────────────────────────────────────────────
-window.APP.RecipesScreen = function({ recipes, setRecipes, onAddToMealPlan, onAddToGrocery, requestPin, addCost, showBanner, knownIngredientNames, ingredients, addNewIngredient, priceHistory }) {
+window.APP.RecipesScreen = function({ recipes, setRecipes, onAddToMealPlan, onAddToGrocery, requestPin, addCost, showBanner, knownIngredientNames, ingredients, addNewIngredient, priceHistory, cookHistory, mealPlan }) {
   const [view,   setView]   = useState("list");
   const [active, setActive] = useState(null);
   const [search, setSearch] = useState("");
@@ -34,6 +34,19 @@ window.APP.RecipesScreen = function({ recipes, setRecipes, onAddToMealPlan, onAd
   const [addingServings, setAddingServings] = useState(null); // servings chosen in the detail view, if any
 
   const allTags = [...new Set(recipes.flatMap(r => r.tags || []))].sort();
+
+  // "Haven't made in a while": saved recipes you've cooked before, but not in the
+  // last 30 days, longest-ago first. Last-made comes from the recipe or cook history.
+  const lastMadeOf = r => Math.max(r.lastMadeAt || 0, ...(cookHistory || [])
+    .filter(e => (e.recipeIds || []).includes(r.id) || (e.recipeName || "").toLowerCase().split(" + ").includes(r.name.toLowerCase()))
+    .map(e => e.madeAt || 0));
+  const plannedIds = new Set((mealPlan || []).filter(m => !m.checked).flatMap(m => m.recipeIds || []));
+  const notMadeInAWhile = recipes
+    .filter(r => !r.hidden && (r.course === "Main" || r.course === "Breakfast") && !plannedIds.has(r.id))
+    .map(r => ({ recipe: r, lastMade: lastMadeOf(r) }))
+    .filter(x => x.lastMade && Date.now() - x.lastMade >= 30 * 24 * 60 * 60 * 1000)
+    .sort((a, b) => a.lastMade - b.lastMade)
+    .slice(0, 5);
   const activeFilterCount = filterCourses.length + filterProteins.length + filterAppliances.length + filterMealTypes.length + filterTags.length;
 
   // ── Filtering ──────────────────────────────────────────────────────────────
@@ -306,6 +319,26 @@ ${source}`,
       ),
     ),
 
+    // ── Haven't Made in a While ──────────────────────────────────────────────
+    notMadeInAWhile.length > 0 && h(Card, { style: { marginBottom: 16, background: "#FFF8F0" } },
+      h("div", { className: "font-bold font-serif mb-8", style: { fontSize: 14 } }, "💡 Haven't Made in a While"),
+      h("div", { className: "muted text-xs", style: { marginBottom: 4 } }, "Saved meals you haven’t cooked in 30+ days. Tap a meal slot to add one to the plan:"),
+      notMadeInAWhile.map(({ recipe: r, lastMade }) =>
+        h("div", { key: r.id, className: "flex-center gap-8 divider", style: { padding: "6px 0" } },
+          h("div", { style: { flex: 1, minWidth: 0 } },
+            h("div", { className: "font-bold", style: { fontSize: 13 } }, r.name),
+            h("div", { className: "muted text-xs" }, `Last made ${new Date(lastMade).toLocaleDateString("en-US", { month: "short", day: "numeric", year: new Date(lastMade).getFullYear() === new Date().getFullYear() ? undefined : "numeric" })}`),
+          ),
+          MEAL_TYPES.map(t => h("button", {
+            key: t,
+            title: `Add as ${t}`,
+            onClick: () => { onAddToMealPlan(r, t); showBanner(`✓ ${r.name} added to ${t}`, "success"); },
+            style: { background: "none", border: `1.5px solid ${(r.mealTypes || []).includes(t) ? "#D4622A" : "#F0E6D3"}`, borderRadius: 8, padding: "4px 6px", color: (r.mealTypes || []).includes(t) ? "#D4622A" : "#7A6A55", lineHeight: 0, cursor: "pointer", flexShrink: 0 },
+          }, h(window.APP.MealIcon, { type: t, size: 16 }))),
+        )
+      ),
+    ),
+
     filtered.length === 0 && h(EmptyState, { icon: "📖", title: "No recipes yet", sub: "Add your first recipe or import from a URL" }),
 
     h("div", { style: { display: "grid", gap: 12, gridTemplateColumns: "minmax(0, 1fr)" } },
@@ -320,7 +353,7 @@ function RecipeCard({ recipe: r, onClick, onAddToMealPlan, onAddToGrocery, showB
     // Top row — thumbnail + info (tappable to open detail)
     h("div", { className: "recipe-card", onClick, style: { marginBottom: 10 } },
       h("div", { className: "recipe-thumb" },
-        r.photo ? h("img", { src: r.photo, alt: r.name }) : "🍴",
+        r.photo ? h("img", { src: r.photo, alt: r.name, loading: "lazy", decoding: "async" }) : "🍴",
       ),
       h("div", { className: "recipe-info" },
         h("div", { className: "recipe-name" }, r.name),
@@ -701,7 +734,7 @@ function MealTypePickerModal({ recipe, onPick, onClose }) {
           className: `meal-type-btn ${tagged.includes(t) ? "active" : ""}`,
           style: { flex: 1 },
         },
-          h("span", { className: "meal-type-icon" }, MEAL_ICONS[t]),
+          h("span", { className: "meal-type-icon" }, h(window.APP.MealIcon, { type: t, size: 22 })),
           t,
         )),
       ),

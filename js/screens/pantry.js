@@ -351,7 +351,7 @@ Return ONLY a valid JSON array, no markdown fences:
               key: t, className: "meal-type-btn", style: { flex: 1 },
               onClick: () => addSuggestionToPlan(s, t),
             },
-              h("span", { className: "meal-type-icon" }, MEAL_ICONS[t]),
+              h("span", { className: "meal-type-icon" }, h(window.APP.MealIcon, { type: t, size: 22 })),
               t,
             )),
           ),

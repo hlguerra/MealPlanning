@@ -69,6 +69,29 @@ window.APP.SettingsScreen = function({ settings, saveSettings, myAppliances, set
   const addAlias    = () => upd("ingredientAliases", [...aliases, { name: "", aka: "" }]);
   const removeAlias = i => upd("ingredientAliases", aliases.filter((_, j) => j !== i));
 
+  // ── Export recipes to CSV ─────────────────────────────────────────────────
+  const csvFileName = () => `recipes-${new Date().toLocaleDateString("en-CA")}.csv`;
+  const csvBlob     = () => new Blob([window.APP.utils.recipesToCsv(recipes || [])], { type: "text/csv;charset=utf-8" });
+  const canShareFiles = typeof navigator !== "undefined" && !!navigator.canShare &&
+    navigator.canShare({ files: [new File([""], "test.csv", { type: "text/csv" })] });
+  const downloadRecipesCsv = () => {
+    const url = URL.createObjectURL(csvBlob());
+    const a = document.createElement("a");
+    a.href = url; a.download = csvFileName();
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    showBanner("✓ Recipes exported", "success");
+  };
+  // Opens the phone's share sheet (Mail, Messages, Files…) with the CSV attached
+  const shareRecipesCsv = async () => {
+    const file = new File([csvBlob()], csvFileName(), { type: "text/csv" });
+    try {
+      await navigator.share({ files: [file], title: "My Recipes" });
+    } catch (err) {
+      if (err?.name !== "AbortError") showBanner("Couldn't open sharing — try Download CSV instead.", "error");
+    }
+  };
+
   const saveAll = () => {
     saveForm(form);
     setSaved(true);
@@ -237,7 +260,7 @@ window.APP.SettingsScreen = function({ settings, saveSettings, myAppliances, set
               className: `meal-type-btn ${on ? "active" : ""}`,
               onClick: () => toggleDefMealType(t),
             },
-              h("span", { className: "meal-type-icon" }, MEAL_ICONS[t]),
+              h("span", { className: "meal-type-icon" }, h(window.APP.MealIcon, { type: t, size: 22 })),
               t,
             );
           }),
@@ -298,7 +321,7 @@ window.APP.SettingsScreen = function({ settings, saveSettings, myAppliances, set
 
     // ── Ingredient AKAs ───────────────────────────────────────────────────────
     h(Card, { style: { marginBottom: 16 } },
-      h("div", { className: "font-bold font-serif mb-4", style: { fontSize: 15 } }, "🧄 Ingredient AKAs"),
+      h(window.APP.CollapsibleSection, { title: `🧄 Ingredient AKAs${aliases.length ? ` (${aliases.length})` : ""}` },
       h("div", { className: "muted text-sm", style: { marginBottom: 12 } },
         "Other names for the same ingredient, so they match in the pantry and combine on the grocery list. Only exact names match — garlic powder stays separate from garlic."),
       aliases.length === 0 && h("div", { className: "muted text-sm italic", style: { marginBottom: 10 } }, "No AKAs yet."),
@@ -315,6 +338,7 @@ window.APP.SettingsScreen = function({ settings, saveSettings, myAppliances, set
       ),
       h(Btn, { label: "Add AKA", variant: "ghost", className: "btn-sm", onClick: addAlias }),
       h("div", { className: "muted text-xs", style: { marginTop: 8 } }, "Separate multiple AKAs with commas. Tap Save Settings to apply."),
+      ),
     ),
 
     // ── Tag audit ─────────────────────────────────────────────────────────────
@@ -338,6 +362,17 @@ window.APP.SettingsScreen = function({ settings, saveSettings, myAppliances, set
         tag: auditingTag, recipes: recipes || [], setRecipes, addCost, showBanner,
         onClose: () => { setAuditingTag(null); setTagAuditInput(""); },
       }),
+    ),
+
+    // ── Export recipes ────────────────────────────────────────────────────────
+    h(Card, { style: { marginBottom: 16 } },
+      h("div", { className: "font-bold font-serif mb-4", style: { fontSize: 15 } }, "📤 Export Recipes"),
+      h("div", { className: "muted text-sm", style: { marginBottom: 12 } },
+        `Save all ${(recipes || []).length} recipes as a CSV file (opens in Excel or Google Sheets).${canShareFiles ? " Share lets you email it to yourself." : ""}`),
+      h("div", { className: "flex gap-8" },
+        h(Btn, { label: "Download CSV", variant: "ghost", onClick: downloadRecipesCsv, disabled: !(recipes || []).length, style: { flex: 1 } }),
+        canShareFiles && h(Btn, { label: "Share / Email", variant: "ghost", onClick: shareRecipesCsv, disabled: !(recipes || []).length, style: { flex: 1 } }),
+      ),
     ),
 
     // ── Appliances ────────────────────────────────────────────────────────────

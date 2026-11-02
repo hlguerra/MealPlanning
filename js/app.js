@@ -443,6 +443,7 @@ function App() {
       onSync:            syncNow,
       priceSearchResults,
       setPriceSearchResults,
+      weeklyVotes,
     }),
 
     recipes: h(RecipesScreen, {
@@ -457,6 +458,8 @@ function App() {
       ingredients,
       addNewIngredient,
       priceHistory,
+      cookHistory,
+      mealPlan,
     }),
 
     plan: h(MealPlanScreen, {

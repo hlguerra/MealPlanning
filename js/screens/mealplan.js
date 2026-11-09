@@ -544,7 +544,7 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
           h("div", { className: "grocery-section-label flex-center gap-6" }, h(window.APP.MealIcon, { type, size: 14 }), type),
           meals.map(m =>
             h(Card, { key: m.id, className: "card-compact", style: { marginBottom: 8, opacity: m.checked ? 0.6 : 1 } },
-              h("div", { className: "flex-between" },
+              h("div", { className: "flex-between", style: { alignItems: "stretch" } },
                 h("div", { style: { flex: 1 } },
                   h("div", {
                     className: "font-bold",
@@ -577,15 +577,19 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
                     }, MEAL_TYPES.map(t => h("option", { key: t, value: t }, t))),
                   ),
                 ),
-                h("button", {
-                  onClick: () => { setAddingToMealId(id => id === m.id ? null : m.id); setAddRecipeSearch(""); },
-                  title: "Link another recipe to this meal",
-                  style: { background: "none", border: "1.5px solid #D4622A", borderRadius: "50%", width: 24, height: 24, cursor: "pointer", color: "#D4622A", fontSize: 15, fontWeight: 700, flexShrink: 0, marginLeft: 8, lineHeight: 1 },
-                }, "+"),
-                h("button", {
-                  onClick: () => deleteMeal(m.id),
-                  style: { background: "none", border: "none", cursor: "pointer", color: "#C0392B", fontSize: 20, flexShrink: 0, marginLeft: 4 },
-                }, "×"),
+                // Delete at the top, link-recipe at the bottom — kept apart so they're hard to mis-tap
+                h("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "space-between", gap: 12, flexShrink: 0, marginLeft: 8 } },
+                  h("button", {
+                    onClick: () => deleteMeal(m.id),
+                    title: "Remove from meal plan",
+                    style: { background: "none", border: "none", cursor: "pointer", color: "#C0392B", fontSize: 20, padding: 0, lineHeight: 1 },
+                  }, "×"),
+                  h("button", {
+                    onClick: () => { setAddingToMealId(id => id === m.id ? null : m.id); setAddRecipeSearch(""); },
+                    title: "Link another recipe to this meal",
+                    style: { background: "none", border: "1.5px solid #D4622A", borderRadius: "50%", width: 24, height: 24, cursor: "pointer", color: "#D4622A", fontSize: 15, fontWeight: 700, lineHeight: 1, padding: 0 },
+                  }, "+"),
+                ),
               ),
 
               // Link another saved recipe (combo meal — main + sides)

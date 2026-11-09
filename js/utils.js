@@ -510,6 +510,14 @@ ${recipeFormatRules()}`,
     });
   },
 
+  // ── Receipt name → lookup key ───────────────────────────────────────────────────
+  // Receipts print the same item with small differences in case, spacing and
+  // punctuation ("MEIJER 100% PURE PUMPKIN" vs "Meijer 100% Pure Pumpkin"), so
+  // learned matches are keyed on a loosened form of the printed name.
+  receiptKey(name) {
+    return String(name || "").toLowerCase().replace(/[^a-z0-9% ]+/g, " ").replace(/\s+/g, " ").trim();
+  },
+
   // ── Scan a receipt photo for line items ───────────────────────────────────────
   // One API call per receipt (not per item). Returns raw parsed items for review —
   // never auto-saved, since receipt item names rarely match your standard list cleanly.

@@ -7,7 +7,7 @@ const { categorize } = window.APP;
 const { SECTIONS, FLYER_LINKS } = window.APP;
 
 // ── GroceryScreen ─────────────────────────────────────────────────────────────
-window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setStaples, settings, spending, onRecordPurchase, addCost, showBanner, priceListResults, setPriceListResults, knownIngredientNames, onCompleteList, ingredients, addNewIngredient, priceHistory, onSavePriceHistory, onSetSection }) {
+window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setStaples, settings, spending, onRecordPurchase, addCost, showBanner, priceListResults, setPriceListResults, knownIngredientNames, onCompleteList, ingredients, addNewIngredient, priceHistory, onSavePriceHistory, onSetSection, receiptMatches, setReceiptMatches }) {
   const [selectedIng, setSelectedIng] = useState(null); // { id, name }
   const [qty,         setQty]         = useState("");
   const [unit,        setUnit]        = useState("");
@@ -40,10 +40,17 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
       const images = await Promise.all(files.map(f => resizeImageToBase64(f)));
       const scan   = await scanReceipt(images);
       addCost("receiptScan");
-      setReceiptItems((scan.items || []).map(it => ({
-        id: window.APP.utils.uid(), name: it.name || "", rawName: it.name || "", ingredientId: null,
-        amount: it.amount || 1, unit: it.unit || "count", price: it.price || 0,
-      })));
+      // Pre-link items you've linked on an earlier receipt (skipping any whose ingredient was since deleted)
+      const { receiptKey } = window.APP.utils;
+      setReceiptItems((scan.items || []).map(it => {
+        const m   = (receiptMatches || []).find(x => x.key === receiptKey(it.name));
+        const ing = m && (ingredients || []).find(i => i.id === m.ingredientId);
+        return {
+          id: window.APP.utils.uid(), name: ing ? ing.name : (it.name || ""), rawName: it.name || "",
+          ingredientId: ing ? ing.id : null, remembered: !!ing,
+          amount: it.amount || 1, unit: it.unit || "count", price: it.price || 0,
+        };
+      }));
 
       // Pre-fill store and date from the receipt (you can still change both)
       const today = new Date().toISOString().split("T")[0];
@@ -66,11 +73,50 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
   const updReceiptItem = (id, patch) => setReceiptItems(items => items.map(it => it.id === id ? { ...it, ...patch } : it));
   const removeReceiptItem = id => setReceiptItems(items => items.filter(it => it.id !== id));
 
+  const [receiptToPantry, setReceiptToPantry] = useState(true); // also stock the pantry with linked receipt items
+  const [receiptListMatches, setReceiptListMatches] = useState(null); // grocery list items that were on the receipt, pending "remove?" answer
+
   const confirmReceipt = () => {
-    const ready = (receiptItems || []).filter(it => it.ingredientId && it.amount && it.unit && it.price >= 0);
+    const linked = (receiptItems || []).filter(it => it.ingredientId);
+    const ready  = linked.filter(it => it.amount && it.unit && it.price >= 0);
     if (!ready.length) { showBanner("Link at least one item before saving.", "error"); return; }
+
+    // Remember each receipt name → ingredient link for next time (re-linking a name replaces the old match)
+    const { receiptKey } = window.APP.utils;
+    const learned = linked.filter(it => receiptKey(it.rawName)).map(it => ({
+      id: receiptKey(it.rawName), key: receiptKey(it.rawName), receiptName: it.rawName.trim(), ingredientId: it.ingredientId,
+    }));
+    if (learned.length && setReceiptMatches) setReceiptMatches(list => {
+      const out = [...(list || [])];
+      learned.forEach(n => {
+        const i = out.findIndex(x => x.key === n.key);
+        if (i === -1) out.push(n);
+        else if (out[i].ingredientId !== n.ingredientId) out[i] = n;
+      });
+      return out;
+    });
+
     onSavePriceHistory(ready, storeChoice === "Other" ? receiptStore.trim() : storeChoice, receiptDate);
+
+    if (receiptToPantry && onCompleteList) {
+      onCompleteList(linked.map(it => ({
+        name: it.name, ingredientId: it.ingredientId, section: categorize(it.name),
+        amount: it.amount !== "" && it.amount != null ? +it.amount : "", unit: it.unit || "",
+      })));
+      showBanner(`✓ Saved prices and added ${linked.length} item${linked.length === 1 ? "" : "s"} to pantry`, "success");
+    }
+
+    // Only ask about the grocery list if something on it was actually on the receipt
+    const matches = groceryList.filter(gi => linked.some(it => sameIngredient(gi, it)));
+    setReceiptListMatches(matches.length ? matches : null);
     setReceiptItems(null); setReceiptStore(""); setStoreChoice("");
+  };
+
+  const removeReceiptMatchesFromList = () => {
+    const ids = new Set((receiptListMatches || []).map(i => i.id));
+    setGroceryList(l => l.filter(i => !ids.has(i.id)));
+    showBanner(`✓ Removed ${ids.size} item${ids.size === 1 ? "" : "s"} from your grocery list`, "success");
+    setReceiptListMatches(null);
   };
 
   // Purchase recording state
@@ -226,7 +272,7 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
 
     receiptItems && h(Card, { style: { marginBottom: 16, border: "2px solid #6FA8C4" } },
       h("div", { className: "font-bold font-serif mb-12", style: { fontSize: 15 } }, `Review Receipt (${receiptItems.length} items)`),
-      h("div", { className: "text-xs muted", style: { marginBottom: 10 } }, "Link each item to a standard ingredient to save its price. Unlinked items are skipped."),
+      h("div", { className: "text-xs muted", style: { marginBottom: 10 } }, "Link each item to a standard ingredient to save its price. Unlinked items are skipped. Links are remembered for your next receipt."),
       h("div", { className: "flex gap-8", style: { marginBottom: 10 } },
         h("select", {
           className: "form-input-sm", style: { flex: 1, minWidth: 0 },
@@ -252,11 +298,12 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
           h("div", { style: { marginBottom: 6 } }, h(window.APP.IngredientSelect, {
             ingredients: ingredients || [],
             selectedId: it.ingredientId,
-            onSelect: sel => updReceiptItem(it.id, { ingredientId: sel.id, name: sel.name }),
+            onSelect: sel => updReceiptItem(it.id, { ingredientId: sel.id, name: sel.name, remembered: false }),
             onAddNew: name => addNewIngredient(name),
             flagged: !it.ingredientId,
             placeholder: "Link to ingredient…",
           })),
+          it.remembered && h("div", { className: "text-xs muted", style: { marginTop: -2, marginBottom: 6 } }, "✓ Linked like last time"),
           h("div", { className: "flex gap-6", style: { alignItems: "center" } },
           h("input", { className: "form-input-sm", style: { width: 60 }, type: "number", value: it.amount, onChange: e => updReceiptItem(it.id, { amount: e.target.value }), placeholder: "Amt" }),
           h("select", {
@@ -269,9 +316,27 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
           ),
         )
       ),
+      h("label", { className: "flex-center gap-8 text-sm", style: { marginTop: 12, cursor: "pointer" } },
+        h("input", {
+          type: "checkbox", checked: receiptToPantry, onChange: e => setReceiptToPantry(e.target.checked),
+          style: { width: 18, height: 18, accentColor: "#2A7D4F", cursor: "pointer" },
+        }),
+        "Also add linked items to my pantry",
+      ),
       h("div", { className: "flex gap-8", style: { marginTop: 12 } },
-        h(Btn, { label: "Save Prices", variant: "accent", onClick: confirmReceipt, style: { flex: 1 } }),
+        h(Btn, { label: receiptToPantry ? "Save & Add to Pantry" : "Save Prices", variant: "accent", onClick: confirmReceipt, style: { flex: 1 } }),
         h(Btn, { label: "Cancel", variant: "ghost", onClick: () => setReceiptItems(null) }),
+      ),
+    ),
+
+    // After a receipt is saved: offer to take what was bought off the grocery list
+    receiptListMatches && h(Card, { style: { marginBottom: 16, border: "2px solid #2A7D4F" } },
+      h("div", { className: "font-bold mb-8", style: { fontSize: 14 } },
+        `${receiptListMatches.length} item${receiptListMatches.length === 1 ? " on your grocery list was" : "s on your grocery list were"} on this receipt. Remove ${receiptListMatches.length === 1 ? "it" : "them"} from the list?`),
+      h("div", { className: "text-xs muted", style: { marginBottom: 10 } }, receiptListMatches.map(i => i.name).join(", ")),
+      h("div", { className: "flex gap-8" },
+        h(Btn, { label: "Keep on List", variant: "ghost", onClick: () => setReceiptListMatches(null), style: { flex: 1 } }),
+        h(Btn, { label: "Remove from List", variant: "accent", onClick: removeReceiptMatchesFromList, style: { flex: 1 } }),
       ),
     ),
 

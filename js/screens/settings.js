@@ -6,7 +6,7 @@ const { fmt$, generateHouseholdId } = window.APP.utils;
 const { MEAL_TYPES, MEAL_ICONS, PROTEINS, APPLIANCES } = window.APP;
 
 // ── SettingsScreen ────────────────────────────────────────────────────────────
-window.APP.SettingsScreen = function({ settings, saveSettings, myAppliances, setMyAppliances, costTotal, requestPin, showBanner, recipes, setRecipes, addCost }) {
+window.APP.SettingsScreen = function({ settings, saveSettings, myAppliances, setMyAppliances, costTotal, requestPin, showBanner, recipes, setRecipes, addCost, receiptMatches, setReceiptMatches, ingredients }) {
   const [form,       setForm]       = useState({ ingredientAliases: window.APP.DEFAULT_SETTINGS.ingredientAliases, ...settings });
   const [saved,      setSaved]      = useState(false);
   const [newPin1,    setNewPin1]    = useState("");
@@ -338,6 +338,31 @@ window.APP.SettingsScreen = function({ settings, saveSettings, myAppliances, set
       ),
       h(Btn, { label: "Add AKA", variant: "ghost", className: "btn-sm", onClick: addAlias }),
       h("div", { className: "muted text-xs", style: { marginTop: 8 } }, "Separate multiple AKAs with commas. Tap Save Settings to apply."),
+      ),
+    ),
+
+    // ── Receipt matches (learned when you link receipt items) ─────────────────
+    h(Card, { style: { marginBottom: 16 } },
+      h(window.APP.CollapsibleSection, { title: `🧾 Receipt Matches${(receiptMatches || []).length ? ` (${receiptMatches.length})` : ""}` },
+      h("div", { className: "muted text-sm", style: { marginBottom: 12 } },
+        "Receipt names you've linked to an ingredient. Next time one shows up on a receipt it's linked for you. Linking it differently on a receipt updates it here; removing one takes effect right away."),
+      !(receiptMatches || []).length && h("div", { className: "muted text-sm italic" }, "No receipt matches yet — they're saved when you link items on a scanned receipt."),
+      [...(receiptMatches || [])]
+        .sort((a, b) => (a.receiptName || a.key).localeCompare(b.receiptName || b.key))
+        .map(m => {
+          const ing = (ingredients || []).find(i => i.id === m.ingredientId);
+          return h("div", { key: m.id, className: "flex gap-8", style: { alignItems: "center", padding: "6px 0", borderBottom: "1px solid #F0E6D3" } },
+            h("div", { className: "text-sm", style: { flex: 1, minWidth: 0, wordBreak: "break-word" } },
+              h("span", { className: "muted" }, m.receiptName || m.key),
+              " → ",
+              ing ? h("span", { className: "font-bold" }, ing.name) : h("span", { className: "italic muted" }, "deleted ingredient"),
+            ),
+            h("button", {
+              onClick: () => setReceiptMatches(list => list.filter(x => x.id !== m.id)), title: "Forget this match",
+              style: { background: "none", border: "none", cursor: "pointer", color: "#C0392B", fontSize: 18, padding: 0, lineHeight: 1, flexShrink: 0 },
+            }, "×"),
+          );
+        }),
       ),
     ),
 

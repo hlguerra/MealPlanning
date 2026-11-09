@@ -32,6 +32,7 @@ function App() {
   const [cookHistory,  setCookHistory]  = usePersist("hmp_cookhistory",  []);
   const [ingredients,  setIngredients]  = usePersist("hmp_ingredients",  []); // standard ingredient list
   const [priceHistory, setPriceHistory] = usePersist("hmp_pricehistory", []); // receipt-derived price history, rolling 365 days
+  const [receiptMatches, setReceiptMatches] = usePersist("hmp_receiptMatches", []); // receipt item name → standard ingredient, learned when you link items
   const [weeklyVotes,  setWeeklyVotes]  = usePersist("hmp_weeklyVotes",  null); // This Week's Picks — batch + everyone's votes
   const [voterName,    setVoterName]    = usePersist("hmp_voterName",    null); // who's voting on THIS device (not synced)
   const [autoGenerate, setAutoGenerate] = useState(false); // "Generate from Picks" on the vote screen → run the generator on arrival
@@ -76,6 +77,7 @@ function App() {
       ingredients:  setIngredients,
       priceHistory: setPriceHistory,
       weeklyVotes:  setWeeklyVotes,
+      receiptMatches: setReceiptMatches,
     });
 
     if (!sync) return;
@@ -100,8 +102,9 @@ function App() {
       ingredients,
       priceHistory,
       weeklyVotes,
+      receiptMatches,
     });
-  }, [groceryList, recipes, costLog, spending, cookHistory, mealPlan, pantry, staples, myAppliances, settings, ingredients, priceHistory, weeklyVotes, settings.householdId]);
+  }, [groceryList, recipes, costLog, spending, cookHistory, mealPlan, pantry, staples, myAppliances, settings, ingredients, priceHistory, weeklyVotes, receiptMatches, settings.householdId]);
 
   // ── This Week's Picks ────────────────────────────────────────────────────────
   // First open in a new week picks a fresh batch of 20. The pick is seeded by
@@ -518,6 +521,8 @@ function App() {
       priceHistory,
       onSavePriceHistory: savePriceHistory,
       onSetSection: setItemSection,
+      receiptMatches,
+      setReceiptMatches,
     }),
 
     pantry: h(PantryScreen, {
@@ -550,6 +555,9 @@ function App() {
       recipes,
       setRecipes,
       addCost,
+      receiptMatches,
+      setReceiptMatches,
+      ingredients,
     }),
   };
 

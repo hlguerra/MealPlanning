@@ -27,6 +27,7 @@ function App() {
   // Ingredient AKAs feed every name match, so set them before anything renders
   window.APP.utils.setIngredientAliases(settings.ingredientAliases ?? window.APP.DEFAULT_SETTINGS.ingredientAliases);
   window.APP.utils.setSectionOverrides(settings.sectionOverrides);
+  window.APP.utils.setWeightPerCup(settings.weightPerCup);
   const [costLog,      setCostLog]      = usePersist("hmp_costlog",      []);
   const [spending,     setSpending]     = usePersist("hmp_spending",     []);
   const [cookHistory,  setCookHistory]  = usePersist("hmp_cookhistory",  []);
@@ -138,6 +139,32 @@ function App() {
       setPantry(p => p.filter(pi => !(isOut(pi) && !isStaple(pi))));
     }
   }, [pantry, staples, setPantry]);
+
+  // ── Recipe costs from receipts ───────────────────────────────────────────────
+  // Whenever receipt prices (or recipes) change, each recipe's stored cost is
+  // re-figured from what you actually paid — newer receipts count more. Meals on
+  // the plan that aren't made yet pick up the new costs too. Waits for sync so a
+  // device with stale data doesn't write old numbers back.
+  useEffect(() => {
+    if (settings.householdId && !syncLoaded) return;
+    const { refreshRecipeCost, mealRecipes } = window.APP.utils;
+    let changed = false;
+    const next = recipes.map(r => {
+      const u = refreshRecipeCost(r, priceHistory, ingredients);
+      if (u !== r) changed = true;
+      return u;
+    });
+    if (changed) { setRecipes(next); return; } // the meal plan update runs on the next pass
+
+    const nextPlan = mealPlan.map(m => {
+      if (m.checked || !(m.recipeIds || []).length) return m;
+      const linked = mealRecipes(m, recipes);
+      if (linked.length !== m.recipeIds.length) return m; // a recipe was deleted — leave it be
+      const cost = +linked.reduce((s, r) => s + (r.estimatedCost || 0), 0).toFixed(2);
+      return Math.abs((m.estimatedCost || 0) - cost) < 0.01 ? m : { ...m, estimatedCost: cost };
+    });
+    if (nextPlan.some((m, i) => m !== mealPlan[i])) setMealPlan(nextPlan);
+  }, [priceHistory, recipes, ingredients, mealPlan, syncLoaded, settings.weightPerCup]); // eslint-disable-line
 
   // ── Add recipe to meal plan ──────────────────────────────────────────────────
   // servings defaults to the recipe as written; groceries and pantry use are scaled to it.
@@ -321,7 +348,7 @@ function App() {
         if (!bought) return; // bought with no quantity — the existing entry already says you have it
 
         // Prefer an entry whose unit converts; otherwise an empty/untracked one we can take over
-        const idx = matchIdxs.find(i => hasQty(updated[i]) && convertUnit(amt, item.unit, updated[i].unit) !== null)
+        const idx = matchIdxs.find(i => hasQty(updated[i]) && convertUnit(amt, item.unit, updated[i].unit, item.name) !== null)
           ?? matchIdxs.find(i => !hasQty(updated[i]) || parseFloat(updated[i].amount) === 0);
         if (idx === undefined) { updated.push(newEntry()); return; } // different unit than what's stocked — track separately rather than guess
 
@@ -331,7 +358,7 @@ function App() {
           // untracked or used up — restock with what was just bought
           updated[idx] = { ...ex, amount: amt, unit: item.unit || "" };
         } else {
-          updated[idx] = { ...ex, amount: +(exAmt + convertUnit(amt, item.unit, ex.unit)).toFixed(3) };
+          updated[idx] = { ...ex, amount: +(exAmt + convertUnit(amt, item.unit, ex.unit, item.name)).toFixed(3) };
         }
       });
       return updated;

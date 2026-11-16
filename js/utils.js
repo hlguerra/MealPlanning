@@ -33,16 +33,52 @@ window.APP.utils = {
   },
 
   // ── Format ingredient display ─────────────────────────────────────────────
-  // Combines scaled amount + unit cleanly, avoids doubling.
-  // fmtIngredient(1, "lb")   → "1 lb"
-  // fmtIngredient(0.5, "cup")→ "0.5 cup"
-  // fmtIngredient(4, "")     → "4"
+  // Amount + unit, with kitchen fractions the way recipes are written.
+  // fmtIngredient(1, "lb")    → "1 lb"
+  // fmtIngredient(0.5, "tsp") → "1/2 tsp"
+  // fmtIngredient(4, "")      → "4"
   fmtIngredient(amount, unit) {
-    const a = amount !== undefined && amount !== "" ? amount : "";
     const u = unit && unit.trim() ? unit.trim() : "";
+    const a = amount !== undefined && amount !== null && amount !== "" ? window.APP.utils.fmtAmount(amount, u) : "";
     if (!a && !u) return "";
     if (!u) return String(a);
     return `${a} ${u}`;
+  },
+
+  // ── Fractions ──────────────────────────────────────────────────────────────
+  // fmtAmount(1.5, "cup") → "1 1/2", fmtAmount(0.333, "tsp") → "1/3".
+  // Metric units (g, kg, ml, l) stay decimal. Amounts that aren't close to a
+  // half, third, quarter or eighth stay decimal too (0.4 → "0.4").
+  // Non-numbers (e.g. "to taste") come back unchanged.
+  fmtAmount(amount, unit = "") {
+    const n = typeof amount === "number" ? amount : parseFloat(amount);
+    if (typeof amount === "string" && (isNaN(n) || !/^\s*-?[\d.]+\s*$/.test(amount))) return amount;
+    if (isNaN(n)) return String(amount ?? "");
+    const decimal = +n.toFixed(2);
+    if (["g", "kg", "ml", "l"].includes(window.APP.utils.canonUnit(unit))) return String(n >= 10 ? Math.round(n) : decimal);
+    if (n < 0) return String(decimal);
+    const whole = Math.floor(n + 1e-9);
+    const frac  = n - whole;
+    if (frac < 0.02) return String(whole);
+    if (frac > 0.98) return String(whole + 1);
+    const FRACS = [[1, 8], [1, 4], [1, 3], [3, 8], [1, 2], [5, 8], [2, 3], [3, 4], [7, 8]];
+    const hit = FRACS.find(([t, b]) => Math.abs(frac - t / b) < 0.02);
+    if (!hit) return String(decimal);
+    return `${whole ? whole + " " : ""}${hit[0]}/${hit[1]}`;
+  },
+
+  // Reads a typed amount: "1 1/2", "1-1/2", "1/2", "½", "1½", "1.5", ".5".
+  // Returns a number, or null if it isn't one.
+  parseAmount(text) {
+    if (typeof text === "number") return isNaN(text) ? null : text;
+    const VULGAR = { "½": "1/2", "⅓": "1/3", "⅔": "2/3", "¼": "1/4", "¾": "3/4", "⅛": "1/8", "⅜": "3/8", "⅝": "5/8", "⅞": "7/8", "⅕": "1/5", "⅙": "1/6" };
+    let t = String(text ?? "").trim().replace(/[½⅓⅔¼¾⅛⅜⅝⅞⅕⅙]/g, m => " " + VULGAR[m]).replace(/⁄/g, "/").trim();
+    if (!t) return null;
+    let m;
+    if ((m = t.match(/^(\d+)\s*[-\s]\s*(\d+)\s*\/\s*(\d+)$/))) return +m[3] ? +m[1] + m[2] / m[3] : null; // 1 1/2, 1-1/2
+    if ((m = t.match(/^(\d+)\s*\/\s*(\d+)$/)))                    return +m[2] ? m[1] / m[2] : null;            // 1/2
+    if (/^(\d+\.?\d*|\.\d+)$/.test(t)) return parseFloat(t);                                                    // 1.5, .5
+    return null;
   },
 
 // ── Ingredient name normalization ─────────────────────────────────────────────
@@ -103,6 +139,40 @@ window.APP.utils = {
     return (key && (window.APP.sectionOverrideMap || {})[key]) || null;
   },
 
+  // ── Weight per cup ─────────────────────────────────────────────────────────────
+  // Your own entries from settings.weightPerCup ([{ name, amount, unit: "g"|"oz" }])
+  // layered over the built-in WEIGHT_PER_CUP table, keyed by normalized name.
+  setWeightPerCup(list = []) {
+    const { baseIngName, parseAmount } = window.APP.utils;
+    const builtIn = {}, mine = {};
+    Object.entries(window.APP.WEIGHT_PER_CUP || {}).forEach(([k, g]) => { builtIn[baseIngName(k)] = g; });
+    (list || []).forEach(({ name, amount, unit }) => {
+      const key = baseIngName(name || ""), amt = parseAmount(amount);
+      if (!key || !amt || amt <= 0) return;
+      mine[key] = unit === "oz" ? amt * 28.3495 : amt;
+    });
+    window.APP.weightPerCupMaps = [mine, builtIn]; // yours are checked first
+  },
+
+  // Grams in one cup of this ingredient, or null if unknown. Matches the end of
+  // the name, whole words, longest first ("light brown sugar" → "brown sugar").
+  // Your entries win over the built-in table even when theirs is more specific.
+  gramsPerCup(name = "") {
+    const { normalizeIngName, baseIngName } = window.APP.utils;
+    if (!window.APP.weightPerCupMaps) window.APP.utils.setWeightPerCup([]);
+    const names = [...new Set([normalizeIngName(name), baseIngName(name)])].filter(Boolean);
+    for (const map of window.APP.weightPerCupMaps) {
+      for (const n of names) {
+        const words = n.split(" ");
+        for (let i = 0; i < words.length; i++) {
+          const tail = words.slice(i).join(" ");
+          if (map[tail]) return map[tail];
+        }
+      }
+    }
+    return null;
+  },
+
   // The section an item is shown under: your override, else its saved section.
   // Unknown sections fall under "Other" so nothing goes missing.
   sectionFor(item) {
@@ -150,18 +220,31 @@ window.APP.utils = {
   },
 
   // ── Unit conversion ────────────────────────────────────────────────────────
-  // Converts an amount between two units of the same type (volume or weight).
+  // Converts an amount between two units. Same type (volume↔volume,
+  // weight↔weight) always works. Volume↔weight works when the ingredient's
+  // weight per cup is known — pass its name: convertUnit(2, "cup", "lb", "flour").
   // A blank unit counts as "count" (e.g. "2 eggs"), so blank and "count" match.
-  // Returns null if units are unknown or different types.
-  convertUnit(amount, fromUnit, toUnit) {
-    const { canonUnit } = window.APP.utils;
+  // Returns null if the units can't be converted.
+  convertUnit(amount, fromUnit, toUnit, name) {
+    const { canonUnit, gramsPerCup } = window.APP.utils;
     const UNIT_INFO = window.APP.UNIT_INFO || {};
     const fromU = canonUnit(fromUnit) || "count", toU = canonUnit(toUnit) || "count";
     if (fromU === toU) return +amount;
     const from = UNIT_INFO[fromU], to = UNIT_INFO[toU];
     if (!from || !to) return null;
-    if (from.type !== to.type || from.type === "count") return null;
-    return +((amount * from.toBase) / to.toBase).toFixed(3);
+    if (from.type === to.type) {
+      if (from.type === "count" || from.type === "can") return null;
+      return +((amount * from.toBase) / to.toBase).toFixed(3);
+    }
+    // volume ↔ weight through the ingredient's weight per cup
+    const pair = [from.type, to.type].sort().join("/");
+    if (pair !== "volume/weight" || !name) return null;
+    const gPerCup = gramsPerCup(name);
+    if (!gPerCup) return null;
+    const gPerMl = gPerCup / UNIT_INFO.cup.toBase;
+    const base = amount * from.toBase; // ml or g
+    const converted = from.type === "volume" ? base * gPerMl : base / gPerMl;
+    return +(converted / to.toBase).toFixed(3);
   },
 
   // True when an item has a usable numeric amount (0 counts — it means "used up").
@@ -205,7 +288,7 @@ window.APP.utils = {
       const amt = parseFloat(item.amount);
       if (isNaN(amt)) {
         // non-quantifiable (e.g. "salt to taste") — keep as a note, don't sum
-        const note = item.amount ? `${item.amount}${item.unit ? " " + item.unit : ""}` : (item.unit || "");
+        const note = item.amount ? window.APP.utils.fmtIngredient(item.amount, item.unit) : (item.unit || "");
         if (note) g.notes.push(note);
         return;
       }
@@ -215,12 +298,12 @@ window.APP.utils = {
         g.hasAmount = true;
         return;
       }
-      const converted = convertUnit(amt, item.unit, g.unit);
+      const converted = convertUnit(amt, item.unit, g.unit, item.name);
       if (converted !== null) {
         g.amount = +(g.amount + converted).toFixed(3);
       } else {
         // incompatible units — can't sum, flag amount as unknown
-        g.notes.push(`${amt} ${item.unit} (check amount — unit mismatch)`);
+        g.notes.push(`${window.APP.utils.fmtIngredient(amt, item.unit)} (check amount — unit mismatch)`);
         g.mismatched = true;
       }
     });
@@ -355,8 +438,8 @@ ${recipeFormatRules()}`,
       let have = 0;
       const unconverted = [];
       matches.forEach(o => {
-        const c = convertUnit(parseFloat(o.amount), o.unit, item.unit);
-        if (c === null) unconverted.push(`have ${o.amount}${o.unit ? " " + o.unit : ""}`);
+        const c = convertUnit(parseFloat(o.amount), o.unit, item.unit, item.name);
+        if (c === null) unconverted.push(`have ${window.APP.utils.fmtIngredient(o.amount, o.unit)}`);
         else have += c;
       });
       const remaining = +(item.amount - have).toFixed(3);
@@ -392,9 +475,9 @@ ${recipeFormatRules()}`,
       if (qty !== null) {
         if (!hasQty(ex)) { ex.amount = qty; ex.unit = ni.unit || ""; }
         else {
-          const c = convertUnit(qty, ni.unit, ex.unit);
+          const c = convertUnit(qty, ni.unit, ex.unit, ni.name);
           if (c !== null) ex.amount = +(parseFloat(ex.amount) + c).toFixed(3);
-          else { allNotes.push(`+ ${qty}${ni.unit ? " " + ni.unit : ""}`); ex.checkAmount = true; }
+          else { allNotes.push(`+ ${window.APP.utils.fmtIngredient(qty, ni.unit)}`); ex.checkAmount = true; }
         }
       }
       if (ni.checkAmount) ex.checkAmount = true;
@@ -418,7 +501,7 @@ ${recipeFormatRules()}`,
       if (!matches.length || matches.some(pi => !hasQty(pi))) return;
       // Prefer an entry that still has stock and a compatible unit
       const usable = matches
-        .map(pi => ({ pi, used: convertUnit(amt, ing.unit, pi.unit) }))
+        .map(pi => ({ pi, used: convertUnit(amt, ing.unit, pi.unit, ing.name) }))
         .filter(x => x.used !== null);
       if (!usable.length) return;
       const left = x => parseFloat(x.pi.amount) - (rows[x.pi.id]?.used || 0);
@@ -448,7 +531,7 @@ ${recipeFormatRules()}`,
     const have = parseFloat(pi.amount);
     const amt  = parseFloat(ing?.amount);
     if (ing && !isNaN(amt) && amt > 0) {
-      const c = convertUnit(amt, ing.unit, pi.unit);
+      const c = convertUnit(amt, ing.unit, pi.unit, ing.name || pi.name);
       if (c !== null) return Math.min(c, have);
     }
     const u = canonUnit(pi.unit) || "count";
@@ -499,56 +582,103 @@ ${recipeFormatRules()}`,
   },
 
   // ── Average unit price ────────────────────────────────────────────────────────
-  // Blended average price-per-base-unit for a standard ingredient, from purchase
-  // history. Converts each purchase's unit to a base unit (ml for volume, g for
-  // weight, count as-is) so purchases in different-sized packages still average
-  // together correctly (e.g. a gallon of milk and a quart of milk both count).
-  // Returns null if there's no usable history. Ignores entries whose unit type
-  // doesn't match the majority (rare, but keeps a mixed-up entry from skewing things).
+  // Price-per-base-unit for a standard ingredient, from receipt history. Converts
+  // each purchase's unit to a base unit (ml for volume, g for weight, count/can
+  // as-is) so different package sizes still average together. Food prices go up,
+  // so newer receipts count more: a purchase loses half its weight every 60 days.
+  // Returns null if there's no usable history. Only the most common unit type is
+  // used, so one odd entry (a "count" among pounds) can't skew it.
   avgUnitPrice(ingredientId, priceHistory = []) {
+    const { canonUnit } = window.APP.utils;
     const UNIT_INFO = window.APP.UNIT_INFO || {};
+    const DAY = 24 * 60 * 60 * 1000, HALF_LIFE_DAYS = 60;
     const entries = priceHistory.filter(p => p.ingredientId === ingredientId && p.amount > 0 && p.unit && p.price >= 0);
     if (!entries.length) return null;
 
     const byType = {};
     entries.forEach(e => {
-      const info = UNIT_INFO[e.unit];
+      const info = UNIT_INFO[canonUnit(e.unit)];
       if (!info) return;
       const baseAmt = e.amount * info.toBase;
       if (baseAmt <= 0) return;
-      (byType[info.type] = byType[info.type] || []).push(e.price / baseAmt);
+      const when = Date.parse(e.date) || e.ts || Date.now();
+      const ageDays = Math.max(0, (Date.now() - when) / DAY);
+      (byType[info.type] = byType[info.type] || []).push({ price: e.price / baseAmt, w: Math.pow(0.5, ageDays / HALF_LIFE_DAYS) });
     });
 
     const types = Object.entries(byType);
     if (!types.length) return null;
     const [type, prices] = types.sort((a, b) => b[1].length - a[1].length)[0]; // most-common unit type
-    const pricePerBase = prices.reduce((a, b) => a + b, 0) / prices.length;
+    const totalW = prices.reduce((s, p) => s + p.w, 0);
+    const pricePerBase = prices.reduce((s, p) => s + p.price * p.w, 0) / totalW;
     return { type, pricePerBase, sampleSize: prices.length };
   },
 
-  // ── Estimate recipe cost from real price history ──────────────────────────────
-  // Only swaps in real prices when EVERY quantifiable, linked ingredient has
-  // price history — a partial sum would understate cost and be misleading.
+  // ── Estimate recipe cost from receipt prices ──────────────────────────────────
+  // Sums receipt-based prices for every quantifiable ingredient that has them.
+  // Ingredients without an ingredientId are matched to the standard list by name.
   // Returns { cost, coverage: "full" | "partial" | "none", pricedCount, quantifiableCount }.
-  estimateRecipeCost(recipe, priceHistory = []) {
-    const { avgUnitPrice } = window.APP.utils;
+  estimateRecipeCost(recipe, priceHistory = [], ingredients = []) {
+    const { avgUnitPrice, canonUnit, normalizeIngName } = window.APP.utils;
     const UNIT_INFO = window.APP.UNIT_INFO || {};
-    const quantifiable = (recipe.ingredients || []).filter(ing => ing.amount && ing.unit);
+    const quantifiable = (recipe.ingredients || []).filter(ing => parseFloat(ing.amount) > 0 && ing.unit);
     if (!quantifiable.length) return { cost: null, coverage: "none", pricedCount: 0, quantifiableCount: 0 };
+
+    const idFor = ing => ing.ingredientId
+      || ingredients.find(i => normalizeIngName(i.name) === normalizeIngName(ing.name || ""))?.id
+      || null;
 
     let total = 0, priced = 0;
     quantifiable.forEach(ing => {
-      if (!ing.ingredientId) return;
-      const avg = avgUnitPrice(ing.ingredientId, priceHistory);
+      const id = idFor(ing);
+      if (!id) return;
+      const avg = avgUnitPrice(id, priceHistory);
       if (!avg) return;
-      const info = UNIT_INFO[ing.unit];
-      if (!info || info.type !== avg.type) return; // can't convert — skip
-      total += ing.amount * info.toBase * avg.pricePerBase;
+      const info = UNIT_INFO[canonUnit(ing.unit)];
+      if (!info) return;
+      let baseAmt = parseFloat(ing.amount) * info.toBase;
+      if (info.type !== avg.type) {
+        // e.g. flour bought by the pound, used by the cup — needs its weight per cup
+        const baseUnit = { weight: "g", volume: "ml" }[avg.type];
+        const c = baseUnit ? window.APP.utils.convertUnit(parseFloat(ing.amount), ing.unit, baseUnit, ing.name) : null;
+        if (c === null) return; // can't convert — skip
+        baseAmt = c;
+      }
+      total += baseAmt * avg.pricePerBase;
       priced++;
     });
 
     const coverage = priced === 0 ? "none" : priced === quantifiable.length ? "full" : "partial";
     return { cost: priced ? +total.toFixed(2) : null, coverage, pricedCount: priced, quantifiableCount: quantifiable.length };
+  },
+
+  // ── Refresh a recipe's stored cost from receipts ──────────────────────────────
+  // Returns the recipe with an updated estimatedCost, or the same object if
+  // nothing changed. Ingredients with receipt prices use them; the rest keep
+  // their share of the original estimate (saved once as aiEstimatedCost so
+  // repeated refreshes don't drift). With no receipt prices it's left alone.
+  //   costSource: "receipts" (every ingredient priced) | "mixed" | undefined
+  refreshRecipeCost(recipe, priceHistory = [], ingredients = []) {
+    const r = window.APP.utils.estimateRecipeCost(recipe, priceHistory, ingredients);
+    const base = recipe.aiEstimatedCost ?? recipe.estimatedCost ?? 0;
+    let cost, costSource;
+    if (r.coverage === "none") {
+      if (!recipe.costSource) return recipe; // never priced from receipts — nothing to do
+      cost = base; costSource = undefined;   // receipt data aged out: back to the original estimate
+    } else {
+      const unpricedShare = (r.quantifiableCount - r.pricedCount) / r.quantifiableCount;
+      cost = +(r.cost + base * unpricedShare).toFixed(2);
+      costSource = r.coverage === "full" ? "receipts" : "mixed";
+    }
+    if (Math.abs((recipe.estimatedCost || 0) - cost) < 0.01 && recipe.costSource === costSource
+        && recipe.costPricedCount === (costSource ? r.pricedCount : undefined)) return recipe;
+    const { costSource: _s, costPricedCount: _c, costIngCount: _q, ...rest } = recipe;
+    return {
+      ...rest,
+      aiEstimatedCost: base,
+      estimatedCost: cost,
+      ...(costSource ? { costSource, costPricedCount: r.pricedCount, costIngCount: r.quantifiableCount } : {}),
+    };
   },
 
   // ── Receipt photo → base64 (resized client-side to control cost) ─────────────

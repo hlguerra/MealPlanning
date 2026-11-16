@@ -305,7 +305,7 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
           })),
           it.remembered && h("div", { className: "text-xs muted", style: { marginTop: -2, marginBottom: 6 } }, "✓ Linked like last time"),
           h("div", { className: "flex gap-6", style: { alignItems: "center" } },
-          h("input", { className: "form-input-sm", style: { width: 60 }, type: "number", value: it.amount, onChange: e => updReceiptItem(it.id, { amount: e.target.value }), placeholder: "Amt" }),
+          h(window.APP.AmountInput, { style: { width: 60 }, value: it.amount, unit: it.unit, onChange: v => updReceiptItem(it.id, { amount: v }) }),
           h("select", {
             className: "form-input-sm", style: { width: 68 },
             value: it.unit, onChange: e => updReceiptItem(it.id, { unit: e.target.value }),
@@ -350,15 +350,12 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
           onAddNew: name => addNewIngredient(name),
           placeholder: "Add item…",
         }),
-        h("input", {
-          className: "form-input-sm",
+        h(window.APP.AmountInput, {
           style: { width: 56, flexShrink: 0 },
-          value: qty,
-          onChange: e => setQty(e.target.value),
+          value: qty, unit,
+          onChange: setQty,
           onKeyDown: e => e.key === "Enter" && addItem(),
           placeholder: "Qty",
-          type: "number",
-          min: "0",
         }),
         h("select", {
           className: "form-input-sm",
@@ -420,11 +417,11 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
             editingId === item.id
               ? h("div", { className: "flex gap-6", style: { flex: 1, alignItems: "center", flexWrap: "wrap" } },
                   h("span", { style: { fontSize: 14, flexShrink: 0 } }, item.name),
-                  h("input", {
-                    className: "form-input-sm", style: { width: 56 }, type: "number",
-                    value: editAmt, onChange: e => setEditAmt(e.target.value),
+                  h(window.APP.AmountInput, {
+                    style: { width: 56 }, value: editAmt, unit: editUnit,
+                    onChange: setEditAmt,
                     onKeyDown: e => e.key === "Enter" && saveEditQty(item.id),
-                    placeholder: "Amt", autoFocus: true,
+                    autoFocus: true,
                   }),
                   h("select", {
                     className: "form-input-sm", style: { width: 74 },
@@ -444,7 +441,7 @@ window.APP.GroceryScreen = function({ groceryList, setGroceryList, staples, setS
                   title: "Tap to edit quantity",
                 },
                   item.name,
-                  item.amount ? ` — ${item.amount}${item.unit ? " " + item.unit : ""}` : " — (tap to add qty)",
+                  item.amount ? ` — ${window.APP.utils.fmtIngredient(item.amount, item.unit)}` : " — (tap to add qty)",
                   item.checkAmount && h("span", { className: "warn text-xs", style: { marginLeft: 6 } }, "⚠ check amount"),
                   item.notes && item.notes.length > 0 && h("span", { className: "muted text-xs", style: { marginLeft: 6, fontStyle: "italic" } }, `(${item.notes.join(", ")})`),
                 ),

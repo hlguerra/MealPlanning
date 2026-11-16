@@ -687,10 +687,10 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
                           ? h("div", { className: "made-link-amt-line" }, h("span", { className: "warn", style: { fontWeight: 600 } }, "use it up"), h("span", { className: "muted" }, " (no amount tracked)"))
                           : h("div", { className: "made-link-amt-line" },
                               h("span", null, "Used"),
-                              h("input", {
-                                type: "number", min: "0", step: "any", inputMode: "decimal", className: "made-link-amt",
+                              h(window.APP.AmountInput, {
+                                className: "made-link-amt", placeholder: "0", unit: row.unit,
                                 value: link.used ?? "",
-                                onChange: e => setMadeLinks(ls => ls.map(l => l.id === link.id ? { ...l, used: e.target.value } : l)), // blank counts as 0 (nothing used)
+                                onChange: v => setMadeLinks(ls => ls.map(l => l.id === link.id ? { ...l, used: v } : l)), // blank counts as 0 (nothing used)
                                 title: `Amount used (${row.unit || "count"})`,
                               }),
                               h("span", { className: "muted" }, `${row.unit || ""} · ${fmtIngredient(row.before, row.unit)} → `,

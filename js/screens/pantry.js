@@ -210,12 +210,10 @@ Return ONLY a valid JSON array, no markdown fences:
               onAddNew: name => addNewIngredient(name),
               placeholder: "Search ingredient…",
             }),
-            h("input", {
-              className: "form-input-sm",
+            h(window.APP.AmountInput, {
               style: { width: 56, flexShrink: 0 },
-              value: draft.amount,
-              onChange: e => setDraft(d => ({ ...d, amount: e.target.value })),
-              placeholder: "Amt", type: "number", min: "0",
+              value: draft.amount, unit: draft.unit,
+              onChange: v => setDraft(d => ({ ...d, amount: v })),
             }),
             h("select", {
               className: "form-input-sm",
@@ -240,7 +238,7 @@ Return ONLY a valid JSON array, no markdown fences:
             item.name,
             isOut(item)
               ? h("span", { className: "warn text-xs", style: { marginLeft: 6, fontWeight: 600 } }, "out")
-              : item.amount ? ` — ${item.amount}${item.unit ? " " + item.unit : ""}` : "",
+              : item.amount ? ` — ${window.APP.utils.fmtIngredient(item.amount, item.unit)}` : "",
           ),
       editingId !== item.id && isOut(item) && (onList(item)
         ? h("span", { className: "muted text-xs", style: { flexShrink: 0 } }, "🛒 on list")
@@ -282,15 +280,11 @@ Return ONLY a valid JSON array, no markdown fences:
           onAddNew: name => addNewIngredient(name),
           placeholder: "Add item… (e.g. chicken thighs, rice)",
         }),
-        h("input", {
-          className: "form-input-sm",
+        h(window.APP.AmountInput, {
           style: { width: 56, flexShrink: 0 },
-          value: amount,
-          onChange: e => setAmount(e.target.value),
+          value: amount, unit,
+          onChange: setAmount,
           onKeyDown: e => e.key === "Enter" && addItem(),
-          placeholder: "Amt",
-          type: "number",
-          min: "0",
         }),
         h("select", {
           className: "form-input-sm",

@@ -103,6 +103,35 @@ window.APP.Input = function({ label, value, onChange, type = "text", placeholder
   );
 };
 
+// ── AmountInput ───────────────────────────────────────────────────────────────
+// An amount box that takes fractions the way recipes write them: "1/2", "1 1/2",
+// "½" or "1.5". Shows stored amounts as fractions (0.5 → "1/2"). onChange gets a
+// plain decimal string ("1.5"), or "" when cleared, so callers parse it as before;
+// half-typed text like "1/" just waits until it's a number.
+window.APP.AmountInput = function({ value, onChange, unit = "", className = "form-input-sm", style, placeholder = "Amt", onKeyDown, autoFocus, title }) {
+  const { fmtAmount, parseAmount } = window.APP.utils;
+  const shown = v => v === "" || v == null ? "" : fmtAmount(v, unit);
+  const [text, setText] = React.useState(() => shown(value));
+  // Follow changes made elsewhere (scaling, reset after Add) without fighting the typing
+  React.useEffect(() => {
+    const cur = parseAmount(text);
+    const next = value === "" || value == null ? null : parseAmount(value);
+    if (cur !== next && !(text.trim() && cur === null && next === null)) setText(shown(value));
+  }, [value]); // eslint-disable-line
+  return h("input", {
+    className, style, placeholder, onKeyDown, autoFocus, title,
+    type: "text", autoComplete: "off", value: text,
+    onChange: e => {
+      const t = e.target.value;
+      setText(t);
+      if (!t.trim()) return onChange("");
+      const n = parseAmount(t);
+      if (n !== null) onChange(String(+n.toFixed(4)));
+    },
+    onBlur: () => { const n = parseAmount(text); setText(n === null ? (text.trim() ? text : "") : fmtAmount(n, unit)); },
+  });
+};
+
 // ── Select ────────────────────────────────────────────────────────────────────
 window.APP.Select = function({ label, value, onChange, options, style = {} }) {
   return h("div", { className: "form-group" },

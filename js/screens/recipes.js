@@ -412,9 +412,9 @@ function RecipeCard({ recipe: r, onClick, onAddToMealPlan, onAddToGrocery, showB
 function RecipeDetail({ recipe, onBack, onEdit, onDelete, onHide, onAddToMealPlan, onAddToGrocery, showBanner, priceHistory }) {
   const [servings, setServings] = useState(recipe.servings || 2);
   const ratio = servings / (recipe.servings || 1);
-  const realCost = window.APP.utils.estimateRecipeCost(recipe, priceHistory || []);
-  const displayCost = realCost.coverage === "full" ? realCost.cost : recipe.estimatedCost;
-  const costLabel = realCost.coverage === "full" ? `${fmt$(displayCost)} 📊` : fmt$(displayCost);
+  // estimatedCost is kept up to date from receipts (see app.js); 📊 marks costs that use them
+  const displayCost = recipe.estimatedCost;
+  const costLabel = recipe.costSource ? `${fmt$(displayCost)} 📊` : fmt$(displayCost);
 
   return h("div", null,
     h("div", { className: "flex-center gap-12", style: { marginBottom: 20 } },
@@ -435,7 +435,10 @@ function RecipeDetail({ recipe, onBack, onEdit, onDelete, onHide, onAddToMealPla
         )
       ),
     ),
-    realCost.coverage === "partial" && h("div", { className: "text-xs muted", style: { marginTop: -10, marginBottom: 16 } }, `📊 Tracked price data available for ${realCost.pricedCount} of ${realCost.quantifiableCount} ingredients — cost above is still Claude's estimate`),
+    recipe.costSource && h("div", { className: "text-xs muted", style: { marginTop: -10, marginBottom: 16 } },
+      recipe.costSource === "receipts"
+        ? "📊 Cost from your receipts"
+        : `📊 Cost uses your receipts for ${recipe.costPricedCount} of ${recipe.costIngCount} ingredients — the rest is the original estimate`),
 
     h("div", { className: "flex wrap gap-6", style: { marginBottom: 16 } },
       recipe.course && h(Tag, { label: recipe.course, color: "#E8EEF8", textColor: "#2A6A9E" }),
@@ -550,7 +553,7 @@ function RecipeForm({ recipe, onSave, onCancel, knownIngredientNames, ingredient
       h("div", { style: { flex: 1 } }, h(Input, { label: "Cook (min)", type: "number", value: form.cookTime,     onChange: v => upd("cookTime",     +v) })),
     ),
 
-    h(Input, { label: "Est. Cost ($)", type: "number", value: form.estimatedCost, onChange: v => upd("estimatedCost", +v) }),
+    h(Input, { label: "Est. Cost ($)", type: "number", value: form.estimatedCost, onChange: v => setForm(f => ({ ...f, estimatedCost: +v, aiEstimatedCost: +v })) }), // typed cost becomes the fallback for ingredients without receipt prices
 
     h("div", { className: "form-group" },
       h("label", { className: "form-label" }, "Protein Type"),
@@ -598,7 +601,7 @@ function RecipeForm({ recipe, onSave, onCancel, knownIngredientNames, ingredient
               flagged: !ing.ingredientId && !!ing.name,
               placeholder: "Search ingredient…",
             }),
-            h("input", { className: "form-input-sm", style: { width: 56 }, value: ing.amount, onChange: e => updIngKey(ing.id, "amount", e.target.value), placeholder: "Amt", type: "number" }),
+            h(window.APP.AmountInput, { style: { width: 56 }, value: ing.amount, unit: ing.unit, onChange: v => updIngKey(ing.id, "amount", v) }),
             h("select", {
               className: "form-input-sm", style: { width: 74 },
               value: ing.unit,
@@ -609,7 +612,7 @@ function RecipeForm({ recipe, onSave, onCancel, knownIngredientNames, ingredient
             ),
             h("button", { onClick: () => remIng(ing.id), style: { background: "none", border: "none", cursor: "pointer", color: "#C0392B", fontSize: 18 } }, "×"),
           ),
-          !ing.ingredientId && ing.name && h("div", { className: "text-xs", style: { color: "#B8860B", marginTop: -2, marginBottom: 2 } }, `⚠ "${ing.name}${ing.amount ? ` ${ing.amount}${ing.unit ? " " + ing.unit : ""}` : ""}" isn't linked to your standard ingredient list yet — search above to link or add it`),
+          !ing.ingredientId && ing.name && h("div", { className: "text-xs", style: { color: "#B8860B", marginTop: -2, marginBottom: 2 } }, `⚠ "${ing.name}${ing.amount ? ` ${fmtIngredient(ing.amount, ing.unit)}` : ""}" isn't linked to your standard ingredient list yet — search above to link or add it`),
           h("input", {
             className: "form-input-sm",
             style: { width: "100%", marginBottom: 4, fontStyle: "italic" },

@@ -69,6 +69,13 @@ window.APP.SettingsScreen = function({ settings, saveSettings, myAppliances, set
   const addAlias    = () => upd("ingredientAliases", [...aliases, { name: "", aka: "" }]);
   const removeAlias = i => upd("ingredientAliases", aliases.filter((_, j) => j !== i));
 
+  // Weight of one cup, per ingredient — lets cups convert to oz/lb/g (see utils.gramsPerCup)
+  const weights      = form.weightPerCup || [];
+  const updWeight    = (i, k, v) => upd("weightPerCup", weights.map((w, j) => j === i ? { ...w, [k]: v } : w));
+  const addWeight    = () => upd("weightPerCup", [...weights, { name: "", amount: "", unit: "g" }]);
+  const removeWeight = i => upd("weightPerCup", weights.filter((_, j) => j !== i));
+  const [weightCheck, setWeightCheck] = useState("");
+
   // ── Export recipes to CSV ─────────────────────────────────────────────────
   const csvFileName = () => `recipes-${new Date().toLocaleDateString("en-CA")}.csv`;
   const csvBlob     = () => new Blob([window.APP.utils.recipesToCsv(recipes || [])], { type: "text/csv;charset=utf-8" });
@@ -338,6 +345,38 @@ window.APP.SettingsScreen = function({ settings, saveSettings, myAppliances, set
       ),
       h(Btn, { label: "Add AKA", variant: "ghost", className: "btn-sm", onClick: addAlias }),
       h("div", { className: "muted text-xs", style: { marginTop: 8 } }, "Separate multiple AKAs with commas. Tap Save Settings to apply."),
+      ),
+    ),
+
+    // ── Weight per cup ────────────────────────────────────────────────────────
+    h(Card, { style: { marginBottom: 16 } },
+      h(window.APP.CollapsibleSection, { title: `⚖️ Weight per cup${weights.length ? ` (${weights.length})` : ""}` },
+      h("div", { className: "muted text-sm", style: { marginBottom: 12 } },
+        "How much one cup of an ingredient weighs, so cups convert to oz, lb and grams — a 10 lb bag of flour against \"2 cups flour\" in a recipe. Common ingredients (flour, sugar, rice, butter, oats, cheese, milk…) are built in; add one here to change it or to add another."),
+      h("div", { className: "flex gap-8", style: { alignItems: "center", marginBottom: 12 } },
+        h("input", { className: "form-input", style: { flex: 1, minWidth: 0 }, value: weightCheck, onChange: e => setWeightCheck(e.target.value), placeholder: "Check an ingredient…" }),
+        weightCheck.trim() && h("span", { className: "text-sm", style: { flexShrink: 0 } }, (() => {
+          window.APP.utils.setWeightPerCup(weights); // preview unsaved edits
+          const g = window.APP.utils.gramsPerCup(weightCheck);
+          window.APP.utils.setWeightPerCup(settings.weightPerCup);
+          return g ? `1 cup ≈ ${Math.round(g)} g / ${(g / 28.3495).toFixed(1)} oz` : "not known yet";
+        })()),
+      ),
+      weights.map((w, i) =>
+        h("div", { key: i, className: "flex gap-8", style: { alignItems: "center", marginBottom: 8 } },
+          h("input", { className: "form-input", style: { flex: 3, minWidth: 0 }, value: w.name, onChange: e => updWeight(i, "name", e.target.value), placeholder: "e.g. bread flour" }),
+          h("span", { className: "muted text-xs", style: { flexShrink: 0 } }, "1 cup ="),
+          h(window.APP.AmountInput, { className: "form-input", style: { width: 64, flexShrink: 0 }, value: w.amount, onChange: v => updWeight(i, "amount", v), placeholder: "127" }),
+          h("select", { className: "form-input", style: { width: 64, flexShrink: 0, padding: "8px 4px" }, value: w.unit || "g", onChange: e => updWeight(i, "unit", e.target.value) },
+            h("option", { value: "g" }, "g"), h("option", { value: "oz" }, "oz")),
+          h("button", {
+            onClick: () => removeWeight(i), title: "Remove",
+            style: { background: "none", border: "none", cursor: "pointer", color: "#C0392B", fontSize: 18, padding: 0, lineHeight: 1, flexShrink: 0 },
+          }, "×"),
+        )
+      ),
+      h(Btn, { label: "Add weight", variant: "ghost", className: "btn-sm", onClick: addWeight }),
+      h("div", { className: "muted text-xs", style: { marginTop: 8 } }, "Flour bag labels often list it per 1/4 cup — multiply by 4. Tap Save Settings to apply."),
       ),
     ),
 

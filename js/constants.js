@@ -102,6 +102,54 @@ window.APP.UNIT_INFO = {
   g:        { type: "weight", toBase: 1 },
   kg:       { type: "weight", toBase: 1000 },
   count:    { type: "count",  toBase: 1 },
+  can:      { type: "can",    toBase: 1 }, // only matches other cans — lets "1 can" receipt prices price "1 can" in a recipe
+};
+
+// ── Weight of one cup (grams) ─────────────────────────────────────────────────
+// Lets cups convert to and from oz/lb/g for a given ingredient (a 10 lb bag of
+// flour vs. "2 cups flour"). Matched on the END of the ingredient name, longest
+// first: "brown sugar" beats "sugar", "all-purpose flour" uses "flour", but
+// "rice vinegar" doesn't use "rice". Your own entries in Settings → Weight per
+// cup win over these. Values are typical spooned/leveled US measures.
+window.APP.WEIGHT_PER_CUP = {
+  // Flours & starches
+  "flour": 120, "all-purpose flour": 120, "bread flour": 127, "cake flour": 113, "pastry flour": 106,
+  "whole wheat flour": 113, "self-rising flour": 113, "almond flour": 96, "coconut flour": 112,
+  "oat flour": 92, "rice flour": 158, "cornmeal": 138, "cornstarch": 112, "masa harina": 116,
+  // Sugars & syrups
+  "sugar": 200, "granulated sugar": 200, "white sugar": 200, "cane sugar": 200, "brown sugar": 213,
+  "light brown sugar": 213, "dark brown sugar": 213, "powdered sugar": 113, "confectioners sugar": 113,
+  "honey": 336, "maple syrup": 312, "molasses": 337, "corn syrup": 328, "agave": 336,
+  // Fats
+  "butter": 227, "margarine": 227, "shortening": 184, "oil": 200, "olive oil": 200, "vegetable oil": 198,
+  "canola oil": 198, "coconut oil": 200, "lard": 205,
+  // Dairy & liquids
+  "water": 236, "milk": 242, "buttermilk": 242, "heavy cream": 238, "whipping cream": 238, "half and half": 242,
+  "sour cream": 227, "yogurt": 227, "greek yogurt": 227, "cream cheese": 227, "ricotta": 246,
+  "cottage cheese": 225, "evaporated milk": 252, "sweetened condensed milk": 306, "coconut milk": 240,
+  "broth": 236, "stock": 236, "juice": 236, "wine": 236,
+  // Cheese
+  "cheese": 113, "shredded cheese": 113, "cheddar": 113, "cheddar cheese": 113, "mozzarella": 113,
+  "mozzarella cheese": 113, "parmesan": 100, "parmesan cheese": 100, "feta": 150, "feta cheese": 150,
+  // Grains, pasta & dry goods
+  "rice": 185, "white rice": 185, "brown rice": 190, "jasmine rice": 185, "basmati rice": 185,
+  "quinoa": 170, "rolled oat": 89, "oat": 89, "old fashioned oat": 89, "quick oat": 80, "steel cut oat": 160,
+  "lentil": 192, "dried lentil": 192, "dry bean": 180, "split pea": 200, "couscous": 173, "orzo": 170,
+  "elbow macaroni": 105, "macaroni": 105, "breadcrumb": 112, "panko": 50, "granola": 113,
+  // Baking add-ins
+  "chocolate chip": 170, "cocoa powder": 84, "cocoa": 84, "shredded coconut": 85, "coconut flake": 85,
+  "raisin": 149, "dried cranberry": 120, "walnut": 113, "pecan": 113, "almond": 142, "sliced almond": 86,
+  "peanut": 142, "cashew": 128, "peanut butter": 270, "almond butter": 256,
+  // Seasonings (bought by weight, measured by spoon)
+  "salt": 288, "table salt": 288,
+  // Condiments
+  "mayonnaise": 220, "mayo": 220, "ketchup": 270, "salsa": 260, "tomato sauce": 245, "tomato paste": 262,
+  "crushed tomato": 240, "diced tomato": 240, "marinara sauce": 250, "pasta sauce": 250, "soy sauce": 255,
+  // Produce & frozen
+  "onion": 160, "chopped onion": 160, "spinach": 30, "baby spinach": 30, "carrot": 128, "shredded carrot": 110,
+  "celery": 101, "bell pepper": 150, "mushroom": 70, "broccoli": 91, "pea": 145, "frozen pea": 145, "corn": 145,
+  "blueberry": 148, "strawberry": 166, "raspberry": 123, "cabbage": 89, "kale": 67,
+  "black bean": 172, "kidney bean": 177, "chickpea": 164, "pinto bean": 171,
 };
 
 // ── Estimated API cost per feature call (USD) ─────────────────────────────────

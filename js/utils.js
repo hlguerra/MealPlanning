@@ -107,7 +107,14 @@ window.APP.utils = {
   // Unknown sections fall under "Other" so nothing goes missing.
   sectionFor(item) {
     const SECTIONS = window.APP.SECTIONS || [];
-    const s = window.APP.utils.sectionOverride(item.name) || item.section;
+    let s = window.APP.utils.sectionOverride(item.name) || item.section;
+    // Spices and condiments got their own sections later; items saved before
+    // that (mostly under "Pantry & Dry Goods") move over without re-saving.
+    const NEWER = ["Spices & Seasonings", "Condiments & Sauces"];
+    if (!window.APP.utils.sectionOverride(item.name) && !NEWER.includes(s) && window.APP.categorize) {
+      const guess = window.APP.categorize(item.name || "");
+      if (NEWER.includes(guess)) s = guess;
+    }
     return SECTIONS.includes(s) ? s : "Other";
   },
 
@@ -398,10 +405,11 @@ ${recipeFormatRules()}`,
 
   // ── Pantry deductions ─────────────────────────────────────────────────────────
   // Works out what cooking a meal takes out of the pantry, without changing
-  // anything. One row per pantry item: { pantryId, name, unit, before, used, after }.
+  // anything. One row per pantry item: { pantryId, name, unit, before, used, after, forIngs }
+  // (forIngs = normalized names of the recipe ingredients it covers).
   // Ingredients not in the pantry, or tracked with no quantity (e.g. salt), are skipped.
   planDeductions(meal, recipes = [], pantry = []) {
-    const { mealIngredients, sameIngredient, convertUnit, hasQty } = window.APP.utils;
+    const { mealIngredients, sameIngredient, convertUnit, hasQty, normalizeIngName } = window.APP.utils;
     const rows = {};
     mealIngredients(meal, recipes).forEach(ing => {
       const amt = parseFloat(ing.amount);
@@ -418,10 +426,69 @@ ${recipeFormatRules()}`,
       const row  = rows[pick.pi.id] || (rows[pick.pi.id] = {
         pantryId: pick.pi.id, name: pick.pi.name, ingredientId: pick.pi.ingredientId || null,
         section: pick.pi.section, unit: pick.pi.unit || "", before: parseFloat(pick.pi.amount), used: 0,
+        forIngs: [],
       });
       row.used = +(row.used + pick.used).toFixed(3);
+      row.forIngs.push(normalizeIngName(ing.name));
     });
     return Object.values(rows).map(r => ({ ...r, after: Math.max(0, +(r.before - r.used).toFixed(3)) }));
+  },
+
+  // ── Linking pantry items by hand ──────────────────────────────────────────────
+  // For "Mark as Made": when the recipe's ingredient didn't match on its own
+  // (14 oz beans vs. a can of black beans, stewed vs. diced tomatoes) you can
+  // point it at any pantry item. These help build that row.
+
+  // How much of pantry item `pi` a linked recipe ingredient uses up, in the
+  // pantry item's unit. Converts when it can; otherwise one can/count, else all
+  // of it. null = the pantry item has no amount tracked (it just gets used up).
+  linkedAmount(ing, pi) {
+    const { hasQty, convertUnit, canonUnit } = window.APP.utils;
+    if (!hasQty(pi)) return null;
+    const have = parseFloat(pi.amount);
+    const amt  = parseFloat(ing?.amount);
+    if (ing && !isNaN(amt) && amt > 0) {
+      const c = convertUnit(amt, ing.unit, pi.unit);
+      if (c !== null) return Math.min(c, have);
+    }
+    const u = canonUnit(pi.unit) || "count";
+    if ((u === "count" || u === "can") && have >= 1) return 1;
+    return have;
+  },
+
+  // A deduction row (same shape as planDeductions) for a hand-picked pantry item.
+  // `used` null means untracked: the item is marked used up.
+  linkedRow(pi, used) {
+    const untracked = used == null;
+    const before = untracked ? null : parseFloat(pi.amount);
+    return {
+      pantryId: pi.id, name: pi.name, ingredientId: pi.ingredientId || null,
+      section: pi.section, unit: pi.unit || "", before,
+      used: untracked ? null : +(+used || 0).toFixed(3),
+      after: untracked ? 0 : Math.max(0, +(before - (+used || 0)).toFixed(3)),
+      untracked, linked: true,
+    };
+  },
+
+  // Pantry items ordered for linking to `ingName`: the same ingredient first,
+  // then ones sharing a word ("stewed tomatoes" → "diced tomatoes"), then the
+  // rest. Returns { suggested, others }. Items that are out are left off.
+  pantryLinkOptions(ingName, pantry = []) {
+    const { normalizeIngName, hasQty } = window.APP.utils;
+    const key   = normalizeIngName(ingName || "");
+    const words = key.split(" ").filter(w => w.length > 2);
+    const stocked = pantry.filter(pi => !(hasQty(pi) && parseFloat(pi.amount) <= 0));
+    const score = pi => {
+      const n = normalizeIngName(pi.name);
+      if (key && n === key) return 2;
+      return words.some(w => n.split(" ").includes(w)) ? 1 : 0;
+    };
+    const byName = (a, b) => a.name.localeCompare(b.name);
+    const scored = stocked.map(pi => ({ pi, s: score(pi) }));
+    return {
+      suggested: scored.filter(x => x.s > 0).sort((a, b) => b.s - a.s || byName(a.pi, b.pi)).map(x => x.pi),
+      others:    scored.filter(x => x.s === 0).map(x => x.pi).sort(byName),
+    };
   },
 
   // ── Rolling 365-day price history ─────────────────────────────────────────────

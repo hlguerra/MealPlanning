@@ -864,3 +864,62 @@ img {
   .stat-value { font-size: 22px; }
   .btn        { padding: 9px 14px; font-size: 13px; }
 }
+
+/* ── Mark as Made: linking pantry items by hand ─────────────────────────── */
+/* Ingredient on one line, a full-width dropdown under it — readable on a 320px phone */
+.made-link-ing {
+  padding: 4px 0;
+  font-size: 12px;
+  color: #7A6A55;
+}
+.made-link-select {
+  display: block;
+  width: 100%;
+  margin-top: 3px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1.5px solid #F0E6D3;
+  background: #fff;
+  font-size: 13px;
+  font-family: 'DM Sans', sans-serif;
+  color: #2A7D4F;
+  font-weight: 600;
+  cursor: pointer;
+}
+.made-link-row {
+  margin: 4px 0 2px 10px;
+  padding: 4px 0 4px 8px;
+  border-left: 2px solid #2A7D4F;
+  font-size: 12px;
+  color: #7A6A55;
+}
+.made-link-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.made-link-amt-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 3px;
+}
+.made-link-amt {
+  width: 56px;
+  padding: 3px 6px;
+  border-radius: 6px;
+  border: 1.5px solid #F0E6D3;
+  font-size: 13px;
+  font-family: 'DM Sans', sans-serif;
+}
+.made-link-remove {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #C0392B;
+  font-size: 18px;
+  line-height: 1;
+  opacity: 0.6;
+  padding: 0 4px;
+}

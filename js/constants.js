@@ -12,6 +12,8 @@ window.APP.SECTIONS = [
   "Bakery & Bread",
   "Frozen",
   "Pantry & Dry Goods",
+  "Spices & Seasonings",
+  "Condiments & Sauces",
   "Canned Goods",
   "Beverages",
   "Snacks",
@@ -196,7 +198,7 @@ window.APP.SEED_RECIPES = [
       { id:"i9",  name:"Shredded cabbage",       amount:2,   unit:"cups", section:"Produce"            },
       { id:"i10", name:"Lime",                   amount:2,   unit:"ct",   section:"Produce"            },
       { id:"i11", name:"Sour cream",             amount:0.5, unit:"cup",  section:"Dairy & Eggs"       },
-      { id:"i12", name:"Taco seasoning",         amount:2,   unit:"tbsp", section:"Pantry & Dry Goods" },
+      { id:"i12", name:"Taco seasoning",         amount:2,   unit:"tbsp", section:"Spices & Seasonings" },
     ],
     steps: [
       "Toss thawed shrimp with taco seasoning and a drizzle of oil.",
@@ -214,7 +216,7 @@ window.APP.SEED_STAPLES = [
   { id:"s2", name:"Butter",        section:"Dairy & Eggs"       },
   { id:"s3", name:"Eggs (dozen)",  section:"Dairy & Eggs"       },
   { id:"s4", name:"Whole milk",    section:"Dairy & Eggs"       },
-  { id:"s5", name:"Salt & pepper", section:"Pantry & Dry Goods" },
+  { id:"s5", name:"Salt & pepper", section:"Spices & Seasonings" },
 ];
 
 // ── Weekly flyer links (Wooster, OH) ──────────────────────────────────────────

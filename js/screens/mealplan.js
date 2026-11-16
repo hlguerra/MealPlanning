@@ -21,6 +21,7 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
   const [markingId,  setMarkingId]  = useState(null); // id of meal being marked as made
   const [markDate,   setMarkDate]   = useState(new Date().toISOString().split("T")[0]);
   const [skipDeductions, setSkipDeductions] = useState([]); // pantry ids unticked in the "mark as made" preview
+  const [madeLinks,      setMadeLinks]      = useState([]); // pantry items linked by hand in that preview: { id, ingKey, pantryId, used }
   const [groceryLoading, setGroceryLoading] = useState(false);
   const [clearConfirm, setClearConfirm] = useState(false);
   const [viewingRecipe, setViewingRecipe] = useState(null); // { meal, recipe, loading, error }
@@ -636,9 +637,67 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
               // Mark as Made — preview exactly what comes out of the pantry, untick anything you didn't use
                 markingId === m.id
                   ? (() => {
-                      const rows = window.APP.utils.planDeductions({ ...m, servings: mealServings(m) }, recipes, pantry || []);
-                      const chosen = rows.filter(r => !skipDeductions.includes(r.pantryId));
-                      const allOn = chosen.length === rows.length;
+                      const U = window.APP.utils;
+                      const mm = { ...m, servings: mealServings(m) };
+                      const rows = U.planDeductions(mm, recipes, pantry || []);
+                      const linkedRows = madeLinks
+                        .map(l => { const pi = (pantry || []).find(x => x.id === l.pantryId); return pi ? { link: l, row: U.linkedRow(pi, l.used) } : null; })
+                        .filter(Boolean);
+                      const chosen = [...rows.filter(r => !skipDeductions.includes(r.pantryId)), ...linkedRows.map(x => x.row)];
+                      const allOn = rows.every(r => !skipDeductions.includes(r.pantryId));
+                      // Recipe ingredients nothing came out of the pantry for (no match, a
+                      // unit that won't convert, or a pantry item with no amount tracked)
+                      const covered = new Set(rows.flatMap(r => r.forIngs || []));
+                      const seen = new Set();
+                      const unmatched = U.mealIngredients(mm, recipes).filter(ing => {
+                        const k = U.normalizeIngName(ing.name);
+                        if (!k || covered.has(k) || seen.has(k)) return false;
+                        seen.add(k); return true;
+                      });
+                      // Pantry items already coming out can't be picked twice
+                      const taken = new Set([...rows.map(r => r.pantryId), ...madeLinks.map(l => l.pantryId)]);
+                      const addLink = (ing, pantryId) => {
+                        const pi = (pantry || []).find(x => x.id === pantryId);
+                        if (!pi) return;
+                        setMadeLinks(ls => [...ls, { id: uid(), ingKey: ing ? U.normalizeIngName(ing.name) : null, pantryId, used: U.linkedAmount(ing, pi) }]);
+                      };
+                      const pantrySelect = (ing, label) => {
+                        const { suggested, others } = U.pantryLinkOptions(ing?.name || "", (pantry || []).filter(pi => !taken.has(pi.id)));
+                        if (!suggested.length && !others.length) return null;
+                        const opt = pi => h("option", { key: pi.id, value: pi.id }, pi.name + (U.hasQty(pi) ? ` (${fmtIngredient(pi.amount, pi.unit)})` : ""));
+                        return h("select", {
+                          className: "made-link-select", value: "",
+                          onChange: e => e.target.value && addLink(ing, e.target.value),
+                        },
+                          h("option", { value: "" }, label),
+                          suggested.length > 0 && h("optgroup", { label: "Suggested" }, suggested.map(opt)),
+                          others.length > 0 && h("optgroup", { label: suggested.length ? "Everything else" : "Pantry" }, others.map(opt)),
+                        );
+                      };
+                      // Name and × on top, amount on its own line so nothing squeezes on narrow phones
+                      const linkRow = ({ link, row }) => h("div", { key: link.id, className: "made-link-row" },
+                        h("div", { className: "made-link-head" },
+                          h("span", { style: { flex: 1 } }, "↳ ", h("span", { style: { color: "#2C1A0E", fontWeight: 600 } }, row.name)),
+                          h("button", {
+                            className: "made-link-remove", title: "Don't use this",
+                            onClick: () => setMadeLinks(ls => ls.filter(l => l.id !== link.id)),
+                          }, "×"),
+                        ),
+                        row.untracked
+                          ? h("div", { className: "made-link-amt-line" }, h("span", { className: "warn", style: { fontWeight: 600 } }, "use it up"), h("span", { className: "muted" }, " (no amount tracked)"))
+                          : h("div", { className: "made-link-amt-line" },
+                              h("span", null, "Used"),
+                              h("input", {
+                                type: "number", min: "0", step: "any", inputMode: "decimal", className: "made-link-amt",
+                                value: link.used ?? "",
+                                onChange: e => setMadeLinks(ls => ls.map(l => l.id === link.id ? { ...l, used: e.target.value } : l)), // blank counts as 0 (nothing used)
+                                title: `Amount used (${row.unit || "count"})`,
+                              }),
+                              h("span", { className: "muted" }, `${row.unit || ""} · ${fmtIngredient(row.before, row.unit)} → `,
+                                row.after === 0 ? h("span", { className: "warn", style: { fontWeight: 600 } }, "out") : fmtIngredient(row.after, row.unit)),
+                            ),
+                      );
+                      const extraLinks = linkedRows.filter(x => !x.link.ingKey || !unmatched.some(i => U.normalizeIngName(i.name) === x.link.ingKey));
                       return h("div", { style: { flex: "1 1 100%", display: "flex", flexDirection: "column", gap: 6 } },
                         h("div", { style: { display: "flex", gap: 8 } },
                           h("input", {
@@ -649,7 +708,7 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
                           }),
                           h(Btn, {
                             label: "Confirm",
-                            onClick: () => { onMarkAsMade({ ...m, servings: mealServings(m) }, markDate, chosen); setMarkingId(null); },
+                            onClick: () => { onMarkAsMade(mm, markDate, chosen); setMarkingId(null); },
                             style: { fontSize: 12, padding: "6px 12px" },
                           }),
                           h(Btn, {
@@ -659,32 +718,53 @@ window.APP.MealPlanScreen = function({ mealPlan, setMealPlan, recipes, setRecipe
                             style: { fontSize: 12, padding: "6px 10px" },
                           }),
                         ),
-                        rows.length === 0
-                          ? h("div", { className: "muted text-xs" }, "Nothing to take out of the pantry for this meal.")
-                          : h("div", { style: { background: "#FFF8F0", borderRadius: 8, padding: "6px 10px" } },
-                              h("label", { style: deductionRowStyle },
-                                h("input", { type: "checkbox", checked: allOn, onChange: () => setSkipDeductions(allOn ? rows.map(r => r.pantryId) : []), style: deductionBoxStyle }),
-                                h("span", { style: { fontWeight: 600 } }, "Remove from pantry:"),
-                              ),
-                              rows.map(r => {
-                                const on = !skipDeductions.includes(r.pantryId);
-                                return h("label", { key: r.pantryId, style: { ...deductionRowStyle, opacity: on ? 1 : 0.5 } },
-                                  h("input", {
-                                    type: "checkbox", checked: on, style: deductionBoxStyle,
-                                    onChange: () => setSkipDeductions(ids => on ? [...ids, r.pantryId] : ids.filter(x => x !== r.pantryId)),
-                                  }),
-                                  h("span", { style: { flex: 1 } }, r.name),
-                                  h("span", { className: "muted" },
-                                    `${fmtIngredient(r.before, r.unit)} → `,
-                                    r.after === 0 ? h("span", { className: "warn", style: { fontWeight: 600 } }, "out") : fmtIngredient(r.after, r.unit),
-                                  ),
-                                );
+                        h("div", { style: { background: "#FFF8F0", borderRadius: 8, padding: "6px 10px" } },
+                          rows.length === 0 && !linkedRows.length
+                            ? h("div", { className: "muted text-xs", style: { padding: "3px 0" } }, "Nothing matched in the pantry automatically.")
+                            : h("div", { style: { ...deductionRowStyle, cursor: "default" } }, h("span", { style: { fontWeight: 600 } }, "Remove from pantry:")),
+                          rows.length > 1 && h("label", { style: deductionRowStyle },
+                            h("input", { type: "checkbox", checked: allOn, onChange: () => setSkipDeductions(allOn ? rows.map(r => r.pantryId) : []), style: deductionBoxStyle }),
+                            h("span", null, "All matched items"),
+                          ),
+                          rows.map(r => {
+                            const on = !skipDeductions.includes(r.pantryId);
+                            return h("label", { key: r.pantryId, style: { ...deductionRowStyle, opacity: on ? 1 : 0.5 } },
+                              h("input", {
+                                type: "checkbox", checked: on, style: deductionBoxStyle,
+                                onChange: () => setSkipDeductions(ids => on ? [...ids, r.pantryId] : ids.filter(x => x !== r.pantryId)),
                               }),
-                            ),
+                              h("span", { style: { flex: 1 } }, r.name),
+                              h("span", { className: "muted" },
+                                `${fmtIngredient(r.before, r.unit)} → `,
+                                r.after === 0 ? h("span", { className: "warn", style: { fontWeight: 600 } }, "out") : fmtIngredient(r.after, r.unit),
+                              ),
+                            );
+                          }),
+
+                          // Ingredients with nothing linked yet — pick what you actually used
+                          unmatched.length > 0 && (pantry || []).length > 0 && h("div", { style: { marginTop: 6, paddingTop: 6, borderTop: "1px solid #F0E6D3" } },
+                            h("div", { className: "muted text-xs", style: { fontWeight: 600, marginBottom: 2 } }, "Used something from the pantry for these?"),
+                            unmatched.map(ing => {
+                              const k = U.normalizeIngName(ing.name);
+                              const mine = linkedRows.filter(x => x.link.ingKey === k);
+                              return h("div", { key: k, className: "made-link-ing" },
+                                h("div", null, U.hasQty(ing) ? `${fmtIngredient(ing.amount, ing.unit)} ${ing.name}` : ing.name),
+                                pantrySelect(ing, mine.length ? "+ Used another pantry item" : "Use from pantry…"),
+                                mine.map(linkRow),
+                              );
+                            }),
+                          ),
+
+                          // Anything else that came out of the pantry
+                          extraLinks.map(linkRow),
+                          (pantry || []).length > 0 && h("div", { className: "made-link-ing", style: { marginTop: 6 } },
+                            pantrySelect(null, "+ Other pantry item"),
+                          ),
+                        ),
                       );
                     })()
                   : h("button", {
-                      onClick: () => { setMarkingId(m.id); setMarkDate(new Date().toISOString().split("T")[0]); setSkipDeductions([]); },
+                      onClick: () => { setMarkingId(m.id); setMarkDate(new Date().toISOString().split("T")[0]); setSkipDeductions([]); setMadeLinks([]); },
                       style: { background: "none", border: "1.5px solid #2A7D4F", borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 600, color: "#2A7D4F", cursor: "pointer", fontFamily: "'DM Sans',sans-serif" },
                     }, "✓ Mark as Made"),
               ),

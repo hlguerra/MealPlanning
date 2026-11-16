@@ -18,8 +18,10 @@ window.APP.categorize = function(name = "") {
 
   // Check each section's keywords in priority order.
   // More specific sections (Meat, Frozen) are checked before general ones.
+  // A keyword starting with "=" only matches the whole name (so "cloves" is a
+  // spice but "garlic cloves" isn't).
   for (const [section, keywords] of Object.entries(KEYWORD_MAP)) {
-    if (keywords.some(k => s.includes(k))) return section;
+    if (keywords.some(k => k[0] === "=" ? s === k.slice(1) : s.includes(k))) return section;
   }
 
   return "Other";
@@ -30,6 +32,36 @@ window.APP.categorize = function(name = "") {
 // Each value is an array of lowercase substrings to match against the item name.
 
 const KEYWORD_MAP = {
+
+  // Checked first so "steak seasoning", "fish sauce" or "peanut butter" don't
+  // land in Meat or Dairy. Keywords are kept specific ("garlic powder", not
+  // "garlic"; "ground cinnamon", not "cinnamon roll") so fresh food isn't caught.
+  "Spices & Seasonings": [
+    "=salt","kosher salt","sea salt","table salt","flaky salt","garlic salt","onion salt",
+    "celery salt","seasoned salt","seasoning salt","salt & pepper","salt and pepper",
+    "=pepper","black pepper","white pepper","peppercorn","lemon pepper",
+    "red pepper flake","crushed red pepper","chili flake","cayenne",
+    "garlic powder","onion powder","granulated garlic","minced onion","dried onion",
+    "chili powder","chipotle powder","ancho powder","cumin","paprika","turmeric powder","ground turmeric",
+    "ground cinnamon","cinnamon stick","=cinnamon","nutmeg","allspice","ground clove","whole clove","=cloves",
+    "ground ginger","ginger powder","cardamom","coriander","fennel seed","mustard seed","celery seed",
+    "caraway","star anise","saffron","sumac","za'atar","zaatar","mustard powder","dry mustard",
+    "=oregano","dried oregano","=thyme","dried thyme","=rosemary","dried rosemary","dried basil",
+    "dried parsley","dried dill","dill weed","dried sage","rubbed sage","ground sage","marjoram","dried chive",
+    "bay leaf","bay leaves","herbes de provence","dried herb",
+    "curry powder","garam masala","five spice","italian seasoning","taco seasoning","fajita seasoning",
+    "cajun","creole seasoning","jerk seasoning","old bay","everything bagel","adobo seasoning","sazon",
+    "ranch seasoning","poultry seasoning","steak seasoning","msg","seasoning","spice","dry rub","bouillon",
+  ],
+
+  "Condiments & Sauces": [
+    "ketchup","mustard","dijon","mayo","mayonnaise","aioli","relish","pickle","caper",
+    "hot sauce","sriracha","tabasco","chili sauce","sweet chili","gochujang","sambal","chili crisp","chili oil",
+    "soy sauce","tamari","coconut aminos","teriyaki","hoisin","fish sauce","oyster sauce","worcestershire",
+    "miso","ponzu","bbq sauce","barbecue sauce","buffalo sauce","steak sauce","a1 sauce","horseradish",
+    "tartar sauce","cocktail sauce","ranch","dressing","vinaigrette","salsa","pesto","chutney","tahini",
+    "peanut butter","almond butter","sunflower butter","nutella","jelly","jam","preserves","marmalade",
+  ],
 
   "Meat & Seafood": [
     // Beef
@@ -147,22 +179,10 @@ const KEYWORD_MAP = {
     // Oils & vinegars
     "oil","olive oil","vegetable oil","canola oil","coconut oil","sesame oil",
     "avocado oil","vinegar","apple cider vinegar","balsamic","red wine vinegar",
-    // Sauces & condiments
-    "ketchup","mustard","mayo","mayonnaise","relish","hot sauce","sriracha",
-    "soy sauce","tamari","teriyaki","hoisin","fish sauce","oyster sauce",
-    "worcestershire","tahini","peanut butter","almond butter","sunflower butter",
-    "jelly","jam","preserve","peanut butter",
-    "bbq sauce","buffalo sauce","ranch dressing","italian dressing",
-    // Spices & seasonings
-    "salt","pepper","garlic powder","onion powder","cumin","paprika","smoked paprika",
-    "chili powder","cayenne","red pepper flake","oregano","basil","thyme",
-    "rosemary","bay leaf","cinnamon","nutmeg","allspice","clove","ginger powder",
-    "turmeric","curry powder","garam masala","italian seasoning","taco seasoning",
-    "old bay","everything bagel","seasoning","spice","herb",
     // Dry beans & lentils
     "dry bean","dried lentil","split pea","dried chickpea","dried black bean",
     // Broths & stocks
-    "broth","stock","chicken broth","beef broth","vegetable broth","bouillon",
+    "broth","stock","chicken broth","beef broth","vegetable broth",
     // Nuts & seeds (pantry-shelf)
     "flaxseed","chia seed","hemp seed","sesame seed","poppy seed",
     // Other dry

@@ -363,17 +363,23 @@ function App() {
     setRecipes(rs => rs.map(r => linkedIds.includes(r.id) ? { ...r, lastMadeAt: now } : r));
 
     // Record what was actually removed (can't remove more than was there) so undo is exact
+    // Untracked rows (a pantry item with no amount, linked by hand) are used up entirely.
     const removed = deductions.map(d => {
       const pi = pantry.find(x => x.id === d.pantryId);
-      const cur = pi ? parseFloat(pi.amount) : NaN;
+      if (!pi) return { ...d, removed: 0 };
+      if (d.untracked) return { ...d, removed: 1, after: 0 };
+      const cur = parseFloat(pi.amount);
       return { ...d, removed: isNaN(cur) ? 0 : Math.min(cur, d.used) };
     }).filter(d => d.removed > 0);
 
     if (removed.length) {
+      // Hitting 0 removes the item (staples stay listed as "out") — see the effect above
       setPantry(p => p.map(pi => {
         const d = removed.find(x => x.pantryId === pi.id);
+        if (!d) return pi;
+        if (d.untracked) return { ...pi, amount: 0 };
         const cur = parseFloat(pi.amount);
-        if (!d || isNaN(cur)) return pi;
+        if (isNaN(cur)) return pi;
         return { ...pi, amount: Math.max(0, +(cur - d.removed).toFixed(3)) };
       }));
     }
@@ -382,7 +388,7 @@ function App() {
       ...m, checked: true, checkedAt: now,
       madeInfo: {
         historyId, prevLastMadeAt,
-        deductions: removed.map(d => ({ pantryId: d.pantryId, name: d.name, ingredientId: d.ingredientId, section: d.section, unit: d.unit, amount: d.removed })),
+        deductions: removed.map(d => ({ pantryId: d.pantryId, name: d.name, ingredientId: d.ingredientId, section: d.section, unit: d.unit, amount: d.untracked ? "" : d.removed, ...(d.untracked ? { untracked: true } : {}) })),
       },
     } : m));
 
@@ -401,6 +407,7 @@ function App() {
       setPantry(p => {
         const updated = p.map(pi => {
           const d = deds.find(x => x.pantryId === pi.id);
+          if (d?.untracked) return { ...pi, amount: "" }; // back to "on hand, amount not tracked"
           const cur = parseFloat(pi.amount);
           return d && !isNaN(cur) ? { ...pi, amount: +(cur + d.amount).toFixed(3) } : pi;
         });

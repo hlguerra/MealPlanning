@@ -109,8 +109,8 @@ window.APP.UNIT_INFO = {
 // Lets cups convert to and from oz/lb/g for a given ingredient (a 10 lb bag of
 // flour vs. "2 cups flour"). Matched on the END of the ingredient name, longest
 // first: "brown sugar" beats "sugar", "all-purpose flour" uses "flour", but
-// "rice vinegar" doesn't use "rice". Your own entries in Settings → Weight per
-// cup win over these. Values are typical spooned/leveled US measures.
+// "rice vinegar" doesn't use "rice". Your own entries in Settings → Ingredient
+// weights win over these. Values are typical spooned/leveled US measures.
 window.APP.WEIGHT_PER_CUP = {
   // Flours & starches
   "flour": 120, "all-purpose flour": 120, "bread flour": 127, "cake flour": 113, "pastry flour": 106,
@@ -150,6 +150,45 @@ window.APP.WEIGHT_PER_CUP = {
   "celery": 101, "bell pepper": 150, "mushroom": 70, "broccoli": 91, "pea": 145, "frozen pea": 145, "corn": 145,
   "blueberry": 148, "strawberry": 166, "raspberry": 123, "cabbage": 89, "kale": 67,
   "black bean": 172, "kidney bean": 177, "chickpea": 164, "pinto bean": 171,
+};
+
+// ── Weight of one item (grams) ────────────────────────────────────────────────
+// For things counted whole ("2 onions", "3 eggs") so they convert to and from
+// weight (a 3 lb bag of onions). Typical medium sizes. Matched like WEIGHT_PER_CUP.
+window.APP.WEIGHT_PER_EACH = {
+  // Produce
+  "onion": 150, "red onion": 150, "yellow onion": 150, "white onion": 150, "sweet onion": 200, "shallot": 40,
+  "potato": 213, "russet potato": 213, "red potato": 150, "yukon gold potato": 150, "sweet potato": 130,
+  "carrot": 61, "celery": 40, "celery stalk": 40, "bell pepper": 120, "jalapeno": 14, "jalapeño": 14, "poblano": 80,
+  "tomato": 123, "roma tomato": 62, "zucchini": 196, "yellow squash": 196, "cucumber": 300, "eggplant": 450,
+  "lemon": 84, "lime": 67, "orange": 131, "apple": 182, "banana": 118, "pear": 178, "peach": 150, "mango": 336,
+  "avocado": 170, "head of lettuce": 600, "lettuce": 600, "romaine": 600, "romaine heart": 250,
+  "cabbage": 900, "cauliflower": 575, "broccoli": 300, "broccoli crown": 225, "mushroom": 18, "corn": 100,
+  "ear of corn": 100, "green onion": 15, "scallion": 15, "leek": 90, "garlic bulb": 50, "head of garlic": 50,
+  // Proteins & dairy
+  "egg": 50, "large egg": 50, "chicken breast": 225, "chicken thigh": 115, "chicken drumstick": 110,
+  "pork chop": 200, "sausage": 85, "bratwurst": 85, "hot dog": 45, "salmon fillet": 170, "tilapia fillet": 115,
+  // Bakery
+  "tortilla": 45, "flour tortilla": 45, "corn tortilla": 26, "burger bun": 60, "hot dog bun": 45, "english muffin": 57,
+  "bagel": 100, "pita": 60, "naan": 90,
+};
+
+// ── Contents of one can (grams, net weight) ───────────────────────────────────
+// Standard US can sizes, so "1 can" converts to and from oz/lb/g (and cups,
+// through WEIGHT_PER_CUP) — "14 oz black beans" against a can in the pantry.
+window.APP.WEIGHT_PER_CAN = {
+  "bean": 425, "black bean": 425, "kidney bean": 425, "pinto bean": 425, "cannellini bean": 425,
+  "great northern bean": 425, "navy bean": 425, "chickpea": 425, "garbanzo bean": 425, "baked bean": 454,
+  "refried bean": 454, "chili": 425,
+  "tomato": 411, "diced tomato": 411, "crushed tomato": 411, "whole tomato": 411, "stewed tomato": 411,
+  "tomato sauce": 425, "tomato paste": 170, "rotel": 283, "diced tomatoes and green chile": 283,
+  "corn": 432, "green bean": 411, "pea": 425, "carrot": 411, "pumpkin": 425, "pumpkin puree": 425,
+  "coconut milk": 400, "evaporated milk": 354, "sweetened condensed milk": 397,
+  "tuna": 142, "chicken": 354, "salmon": 418,
+  "broth": 411, "chicken broth": 411, "beef broth": 411, "vegetable broth": 411,
+  "cream of mushroom soup": 298, "cream of chicken soup": 298, "condensed soup": 298, "soup": 298,
+  "green chile": 113, "diced green chile": 113, "chipotle": 198, "chipotle in adobo": 198, "enchilada sauce": 283,
+  "pineapple": 567, "peach": 432, "pear": 432, "mandarin orange": 312, "olive": 170, "artichoke heart": 397,
 };
 
 // ── Estimated API cost per feature call (USD) ─────────────────────────────────

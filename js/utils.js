@@ -139,29 +139,38 @@ window.APP.utils = {
     return (key && (window.APP.sectionOverrideMap || {})[key]) || null;
   },
 
-  // ── Weight per cup ─────────────────────────────────────────────────────────────
-  // Your own entries from settings.weightPerCup ([{ name, amount, unit: "g"|"oz" }])
-  // layered over the built-in WEIGHT_PER_CUP table, keyed by normalized name.
+  // ── Ingredient weights ─────────────────────────────────────────────────────────
+  // What one cup, one item, or one can of an ingredient weighs, so any of those
+  // converts to oz/lb/g (and to each other). Built-in tables WEIGHT_PER_CUP /
+  // WEIGHT_PER_EACH / WEIGHT_PER_CAN, with your own entries from
+  // settings.weightPerCup ([{ name, per: "cup"|"each"|"can", amount, unit: "g"|"oz" }])
+  // checked first. Entries saved before "per" existed are per cup.
   setWeightPerCup(list = []) {
     const { baseIngName, parseAmount } = window.APP.utils;
-    const builtIn = {}, mine = {};
-    Object.entries(window.APP.WEIGHT_PER_CUP || {}).forEach(([k, g]) => { builtIn[baseIngName(k)] = g; });
-    (list || []).forEach(({ name, amount, unit }) => {
+    const TABLES = { cup: window.APP.WEIGHT_PER_CUP, each: window.APP.WEIGHT_PER_EACH, can: window.APP.WEIGHT_PER_CAN };
+    const maps = {};
+    Object.entries(TABLES).forEach(([per, table]) => {
+      const builtIn = {};
+      Object.entries(table || {}).forEach(([k, g]) => { builtIn[baseIngName(k)] = g; });
+      maps[per] = [{}, builtIn]; // [yours, built-in]
+    });
+    (list || []).forEach(({ name, amount, unit, per }) => {
       const key = baseIngName(name || ""), amt = parseAmount(amount);
       if (!key || !amt || amt <= 0) return;
-      mine[key] = unit === "oz" ? amt * 28.3495 : amt;
+      maps[maps[per] ? per : "cup"][0][key] = unit === "oz" ? amt * 28.3495 : amt;
     });
-    window.APP.weightPerCupMaps = [mine, builtIn]; // yours are checked first
+    window.APP.weightMaps = maps;
   },
 
-  // Grams in one cup of this ingredient, or null if unknown. Matches the end of
-  // the name, whole words, longest first ("light brown sugar" → "brown sugar").
-  // Your entries win over the built-in table even when theirs is more specific.
-  gramsPerCup(name = "") {
+  // Grams in one cup / one item / one can of this ingredient, or null if unknown.
+  // Matches the end of the name, whole words, longest first ("light brown sugar"
+  // → "brown sugar"). Your entries win over the built-in ones even when theirs is
+  // more specific.
+  gramsPer(per, name = "") {
     const { normalizeIngName, baseIngName } = window.APP.utils;
-    if (!window.APP.weightPerCupMaps) window.APP.utils.setWeightPerCup([]);
+    if (!window.APP.weightMaps) window.APP.utils.setWeightPerCup([]);
     const names = [...new Set([normalizeIngName(name), baseIngName(name)])].filter(Boolean);
-    for (const map of window.APP.weightPerCupMaps) {
+    for (const map of window.APP.weightMaps[per] || []) {
       for (const n of names) {
         const words = n.split(" ");
         for (let i = 0; i < words.length; i++) {
@@ -172,6 +181,7 @@ window.APP.utils = {
     }
     return null;
   },
+  gramsPerCup(name) { return window.APP.utils.gramsPer("cup", name); },
 
   // The section an item is shown under: your override, else its saved section.
   // Unknown sections fall under "Other" so nothing goes missing.
@@ -221,12 +231,14 @@ window.APP.utils = {
 
   // ── Unit conversion ────────────────────────────────────────────────────────
   // Converts an amount between two units. Same type (volume↔volume,
-  // weight↔weight) always works. Volume↔weight works when the ingredient's
-  // weight per cup is known — pass its name: convertUnit(2, "cup", "lb", "flour").
+  // weight↔weight) always works. Anything else goes through the ingredient's
+  // weight — cups, items and cans each need theirs known (see gramsPer), so
+  // pass the ingredient name: convertUnit(2, "cup", "lb", "flour"),
+  // convertUnit(1, "can", "oz", "black beans"), convertUnit(2, "count", "lb", "onion").
   // A blank unit counts as "count" (e.g. "2 eggs"), so blank and "count" match.
   // Returns null if the units can't be converted.
   convertUnit(amount, fromUnit, toUnit, name) {
-    const { canonUnit, gramsPerCup } = window.APP.utils;
+    const { canonUnit, gramsPer } = window.APP.utils;
     const UNIT_INFO = window.APP.UNIT_INFO || {};
     const fromU = canonUnit(fromUnit) || "count", toU = canonUnit(toUnit) || "count";
     if (fromU === toU) return +amount;
@@ -236,15 +248,18 @@ window.APP.utils = {
       if (from.type === "count" || from.type === "can") return null;
       return +((amount * from.toBase) / to.toBase).toFixed(3);
     }
-    // volume ↔ weight through the ingredient's weight per cup
-    const pair = [from.type, to.type].sort().join("/");
-    if (pair !== "volume/weight" || !name) return null;
-    const gPerCup = gramsPerCup(name);
-    if (!gPerCup) return null;
-    const gPerMl = gPerCup / UNIT_INFO.cup.toBase;
-    const base = amount * from.toBase; // ml or g
-    const converted = from.type === "volume" ? base * gPerMl : base / gPerMl;
-    return +(converted / to.toBase).toFixed(3);
+    if (!name) return null;
+    // Grams in one unit of each side: weight units directly, the rest via the ingredient
+    const gramsPerUnit = (u, info) => {
+      if (info.type === "weight") return info.toBase;
+      if (info.type === "volume") { const g = gramsPer("cup", name); return g ? g / UNIT_INFO.cup.toBase * info.toBase : null; }
+      if (info.type === "count")  return gramsPer("each", name);
+      if (info.type === "can")    return gramsPer("can", name);
+      return null;
+    };
+    const gFrom = gramsPerUnit(fromU, from), gTo = gramsPerUnit(toU, to);
+    if (!gFrom || !gTo) return null;
+    return +((amount * gFrom) / gTo).toFixed(3);
   },
 
   // True when an item has a usable numeric amount (0 counts — it means "used up").
@@ -638,8 +653,8 @@ ${recipeFormatRules()}`,
       if (!info) return;
       let baseAmt = parseFloat(ing.amount) * info.toBase;
       if (info.type !== avg.type) {
-        // e.g. flour bought by the pound, used by the cup — needs its weight per cup
-        const baseUnit = { weight: "g", volume: "ml" }[avg.type];
+        // e.g. flour bought by the pound but used by the cup, or beans bought by the can but used by the ounce
+        const baseUnit = { weight: "g", volume: "ml", count: "count", can: "can" }[avg.type];
         const c = baseUnit ? window.APP.utils.convertUnit(parseFloat(ing.amount), ing.unit, baseUnit, ing.name) : null;
         if (c === null) return; // can't convert — skip
         baseAmt = c;

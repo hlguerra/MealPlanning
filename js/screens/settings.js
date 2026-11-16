@@ -69,10 +69,10 @@ window.APP.SettingsScreen = function({ settings, saveSettings, myAppliances, set
   const addAlias    = () => upd("ingredientAliases", [...aliases, { name: "", aka: "" }]);
   const removeAlias = i => upd("ingredientAliases", aliases.filter((_, j) => j !== i));
 
-  // Weight of one cup, per ingredient — lets cups convert to oz/lb/g (see utils.gramsPerCup)
+  // Weight of one cup / item / can, per ingredient — lets those convert to oz/lb/g (see utils.gramsPer)
   const weights      = form.weightPerCup || [];
   const updWeight    = (i, k, v) => upd("weightPerCup", weights.map((w, j) => j === i ? { ...w, [k]: v } : w));
-  const addWeight    = () => upd("weightPerCup", [...weights, { name: "", amount: "", unit: "g" }]);
+  const addWeight    = () => upd("weightPerCup", [...weights, { name: "", per: "cup", amount: "", unit: "g" }]);
   const removeWeight = i => upd("weightPerCup", weights.filter((_, j) => j !== i));
   const [weightCheck, setWeightCheck] = useState("");
 
@@ -348,35 +348,44 @@ window.APP.SettingsScreen = function({ settings, saveSettings, myAppliances, set
       ),
     ),
 
-    // ── Weight per cup ────────────────────────────────────────────────────────
+    // ── Ingredient weights (per cup / item / can) ─────────────────────────────
     h(Card, { style: { marginBottom: 16 } },
-      h(window.APP.CollapsibleSection, { title: `⚖️ Weight per cup${weights.length ? ` (${weights.length})` : ""}` },
+      h(window.APP.CollapsibleSection, { title: `⚖️ Ingredient weights${weights.length ? ` (${weights.length})` : ""}` },
       h("div", { className: "muted text-sm", style: { marginBottom: 12 } },
-        "How much one cup of an ingredient weighs, so cups convert to oz, lb and grams — a 10 lb bag of flour against \"2 cups flour\" in a recipe. Common ingredients (flour, sugar, rice, butter, oats, cheese, milk…) are built in; add one here to change it or to add another."),
-      h("div", { className: "flex gap-8", style: { alignItems: "center", marginBottom: 12 } },
-        h("input", { className: "form-input", style: { flex: 1, minWidth: 0 }, value: weightCheck, onChange: e => setWeightCheck(e.target.value), placeholder: "Check an ingredient…" }),
-        weightCheck.trim() && h("span", { className: "text-sm", style: { flexShrink: 0 } }, (() => {
-          window.APP.utils.setWeightPerCup(weights); // preview unsaved edits
-          const g = window.APP.utils.gramsPerCup(weightCheck);
-          window.APP.utils.setWeightPerCup(settings.weightPerCup);
-          return g ? `1 cup ≈ ${Math.round(g)} g / ${(g / 28.3495).toFixed(1)} oz` : "not known yet";
+        "What a cup, one item, or a can of an ingredient weighs, so the app can convert between them and oz, lb and grams — a 10 lb bag of flour against \"2 cups flour\", a 3 lb bag of onions against \"2 onions\", a can of beans against \"14 oz beans\". Common ingredients are built in; add one here to change it or add another."),
+      h("div", { style: { marginBottom: 12 } },
+        h("input", { className: "form-input", value: weightCheck, onChange: e => setWeightCheck(e.target.value), placeholder: "Check an ingredient… (e.g. black beans)" }),
+        weightCheck.trim() && h("div", { className: "text-sm", style: { marginTop: 6 } }, (() => {
+          const U = window.APP.utils;
+          U.setWeightPerCup(weights); // preview unsaved edits
+          const fmt = g => g ? `${Math.round(g)} g (${(g / 28.3495).toFixed(1)} oz)` : h("span", { className: "muted" }, "not known");
+          const out = [["1 cup", U.gramsPer("cup", weightCheck)], ["1 item", U.gramsPer("each", weightCheck)], ["1 can", U.gramsPer("can", weightCheck)]];
+          U.setWeightPerCup(settings.weightPerCup);
+          return out.map(([l, g]) => h("div", { key: l }, `${l} = `, fmt(g)));
         })()),
       ),
       weights.map((w, i) =>
-        h("div", { key: i, className: "flex gap-8", style: { alignItems: "center", marginBottom: 8 } },
-          h("input", { className: "form-input", style: { flex: 3, minWidth: 0 }, value: w.name, onChange: e => updWeight(i, "name", e.target.value), placeholder: "e.g. bread flour" }),
-          h("span", { className: "muted text-xs", style: { flexShrink: 0 } }, "1 cup ="),
-          h(window.APP.AmountInput, { className: "form-input", style: { width: 64, flexShrink: 0 }, value: w.amount, onChange: v => updWeight(i, "amount", v), placeholder: "127" }),
-          h("select", { className: "form-input", style: { width: 64, flexShrink: 0, padding: "8px 4px" }, value: w.unit || "g", onChange: e => updWeight(i, "unit", e.target.value) },
-            h("option", { value: "g" }, "g"), h("option", { value: "oz" }, "oz")),
-          h("button", {
-            onClick: () => removeWeight(i), title: "Remove",
-            style: { background: "none", border: "none", cursor: "pointer", color: "#C0392B", fontSize: 18, padding: 0, lineHeight: 1, flexShrink: 0 },
-          }, "×"),
+        h("div", { key: i, style: { marginBottom: 10, paddingBottom: 10, borderBottom: "1px solid #F0E6D3" } },
+          h("div", { className: "flex gap-8", style: { alignItems: "center", marginBottom: 6 } },
+            h("input", { className: "form-input", style: { flex: 1, minWidth: 0 }, value: w.name, onChange: e => updWeight(i, "name", e.target.value), placeholder: "e.g. bread flour" }),
+            h("button", {
+              onClick: () => removeWeight(i), title: "Remove",
+              style: { background: "none", border: "none", cursor: "pointer", color: "#C0392B", fontSize: 18, padding: 0, lineHeight: 1, flexShrink: 0 },
+            }, "×"),
+          ),
+          h("div", { className: "flex gap-8", style: { alignItems: "center" } },
+            h("span", { className: "muted text-sm", style: { flexShrink: 0 } }, "1"),
+            h("select", { className: "form-input", style: { flex: 1, minWidth: 0, padding: "8px 4px" }, value: w.per || "cup", onChange: e => updWeight(i, "per", e.target.value) },
+              h("option", { value: "cup" }, "cup"), h("option", { value: "each" }, "item"), h("option", { value: "can" }, "can")),
+            h("span", { className: "muted text-sm", style: { flexShrink: 0 } }, "="),
+            h(window.APP.AmountInput, { className: "form-input", style: { width: 64, flexShrink: 0 }, value: w.amount, onChange: v => updWeight(i, "amount", v), placeholder: "127" }),
+            h("select", { className: "form-input", style: { width: 60, flexShrink: 0, padding: "8px 4px" }, value: w.unit || "g", onChange: e => updWeight(i, "unit", e.target.value) },
+              h("option", { value: "g" }, "g"), h("option", { value: "oz" }, "oz")),
+          ),
         )
       ),
       h(Btn, { label: "Add weight", variant: "ghost", className: "btn-sm", onClick: addWeight }),
-      h("div", { className: "muted text-xs", style: { marginTop: 8 } }, "Flour bag labels often list it per 1/4 cup — multiply by 4. Tap Save Settings to apply."),
+      h("div", { className: "muted text-xs", style: { marginTop: 8 } }, "Can labels list the net weight (\"NET WT 15 OZ\"). Flour bags often list a 1/4 cup serving — multiply by 4. Tap Save Settings to apply."),
       ),
     ),
 
